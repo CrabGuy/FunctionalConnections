@@ -1,37 +1,49 @@
 package client;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.net.Socket;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
 
 public class ClientMain implements AutoCloseable {
-    private final Socket socket;
-    private final PrintWriter writer;
-    private final BufferedReader reader;
+    private final SocketChannel socketChannel;
+    private final ByteBuffer buffer = ByteBuffer.allocate(1024);
 
     private ClientMain(String host, int port) throws IOException {
-        this.socket = new Socket(host, port);
-        this.writer = new PrintWriter(socket.getOutputStream(), true);
-        this.reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        this.socketChannel = SocketChannel.open(new InetSocketAddress(host, port));
     }
 
-    // Static factory method
     public static ClientMain create(String host, int port) throws IOException {
         return new ClientMain(host, port);
     }
 
     public String send_message(String message) throws IOException {
-        writer.println(message);
-        return reader.readLine();
+        String payload = message + "\n";
+        ByteBuffer writeBuffer = ByteBuffer.wrap(payload.getBytes(StandardCharsets.UTF_8));
+        
+        while (writeBuffer.hasRemaining()) {
+            socketChannel.write(writeBuffer);
+        }
+
+        buffer.clear();
+        int bytesRead = socketChannel.read(buffer);
+        
+        if (bytesRead == -1) {
+            throw new IOException("Connection closed by the server.");
+        }
+
+        buffer.flip();
+        String response = StandardCharsets.UTF_8.decode(buffer).toString();
+        
+        return response.trim();
     }
 
     @Override
     public void close() throws IOException {
-        reader.close();
-        writer.close();
-        socket.close();
+        if (socketChannel != null) {
+            socketChannel.close();
+        }
     }
 
     public static void main(String[] args) {
