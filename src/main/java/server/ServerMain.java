@@ -1,6 +1,6 @@
 package server;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import shared.MessageCodec;
 import shared.Request;
 import shared.Response;
 
@@ -13,6 +13,7 @@ import java.util.concurrent.Executors;
 import java.util.function.Function;
 
 public class ServerMain {
+
     public static void start(int port, Function<Request, Response> handler) {
         Thread.ofPlatform().start(() -> {
             try (var server = new ServerSocket(port);
@@ -30,15 +31,13 @@ public class ServerMain {
     }
 
     private static void handleClient(Socket socket, Function<Request, Response> handler) {
-        var mapper = new ObjectMapper();
-
         try (socket;
              var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
              var writer = new PrintWriter(socket.getOutputStream(), true)) {
 
             reader.lines()
                   .filter(line -> !line.isBlank())
-                  .map(line -> parseAndExecute(line, handler, mapper))
+                  .map(line -> parseAndExecute(line, handler))
                   .forEach(writer::println);
 
         } catch (Exception e) {
@@ -46,13 +45,13 @@ public class ServerMain {
         }
     }
 
-    private static String parseAndExecute(String jsonLine, Function<Request, Response> handler, ObjectMapper mapper) {
+    private static String parseAndExecute(String jsonLine, Function<Request, Response> handler) {
         try {
-            Request request = mapper.readValue(jsonLine, Request.class);
+            Request request = MessageCodec.deserialize(jsonLine, Request.class);
             Response response = handler.apply(request);
-            return mapper.writeValueAsString(response);
+            return MessageCodec.serialize(response);
         } catch (Exception e) {
-            return "{\"success\":false,\"result\":null,\"error\":\"" + e.getMessage() + "\"}";
+            return MessageCodec.serializeError(e.getMessage());
         }
     }
 
