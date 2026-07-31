@@ -12,6 +12,10 @@ import java.net.Socket;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
 
+
+// TODO: setup players logic and authentications and such
+// Save everything in a hashmap of all players (online and offline) and save it to disk with a probability after operations
+
 public class ServerMain {
 
     public static void start(int port, Function<Request, Response> handler) {

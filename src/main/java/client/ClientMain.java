@@ -1,7 +1,5 @@
 package client;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import shared.MessageCodec;
 import shared.Request;
 import shared.Response;
