@@ -1,13 +1,14 @@
 #!/bin/bash
 
-javac server/ServerMain.java client/ClientMain.java || exit 1
+cd "$(dirname "$0")/.." || exit 1
 
-java server.ServerMain &
+mvn clean compile || exit 1
+
+mvn exec:java -Dexec.mainClass="server.ServerMain" &
 SERVER_PID=$!
 
 sleep 2
 
-java client.ClientMain
+mvn exec:java -Dexec.mainClass="client.ClientMain"
 
 kill $SERVER_PID 2>/dev/null
-find server client -name "*.class" -delete

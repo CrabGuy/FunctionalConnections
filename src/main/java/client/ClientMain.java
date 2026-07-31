@@ -1,5 +1,8 @@
 package client;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import shared.Request;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -7,8 +10,11 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 
 public class ClientMain implements AutoCloseable {
+    // Record moved to common.Request
+
     private final SocketChannel socketChannel;
     private final ByteBuffer buffer = ByteBuffer.allocate(1024);
+    private final ObjectMapper MAPPER = new ObjectMapper();
 
     private ClientMain(String host, int port) throws IOException {
         this.socketChannel = SocketChannel.open(new InetSocketAddress(host, port));
@@ -18,8 +24,8 @@ public class ClientMain implements AutoCloseable {
         return new ClientMain(host, port);
     }
 
-    public String send_message(String message) throws IOException {
-        String payload = message + "\n";
+    public String send_message(Request request) throws IOException {
+        String payload = MAPPER.writeValueAsString(request) + "\n";
         ByteBuffer writeBuffer = ByteBuffer.wrap(payload.getBytes(StandardCharsets.UTF_8));
         
         while (writeBuffer.hasRemaining()) {
@@ -34,9 +40,7 @@ public class ClientMain implements AutoCloseable {
         }
 
         buffer.flip();
-        String response = StandardCharsets.UTF_8.decode(buffer).toString();
-        
-        return response.trim();
+        return StandardCharsets.UTF_8.decode(buffer).toString().trim();
     }
 
     @Override
@@ -49,8 +53,8 @@ public class ClientMain implements AutoCloseable {
     public static void main(String[] args) {
         try (ClientMain client = ClientMain.create("localhost", 8080)) {
             
-            System.out.println(client.send_message("functional pipelines rule"));
-            System.out.println(client.send_message("no static configurations"));
+            System.out.println(client.send_message(new Request("uppercase", "functional pipelines rule")));
+            System.out.println(client.send_message(new Request("reverse", "no static configurations")));
 
         } catch (IOException e) {
             System.err.println("Client runtime error: " + e.getMessage());
