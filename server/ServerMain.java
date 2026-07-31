@@ -11,12 +11,10 @@ import java.util.function.Function;
 
 public class ServerMain {
 
-    // Private constructor to enforce the use of the factory method
     private ServerMain(int port_number, Function<String, String> transformer_logic) {
         Thread.ofPlatform().start(() -> run_server(port_number, transformer_logic));
     }
 
-    // Static factory method
     public static ServerMain create(int port_number, Function<String, String> transformer_logic) {
         return new ServerMain(port_number, transformer_logic);
     }
@@ -51,7 +49,6 @@ public class ServerMain {
     }
 
     public static void main(String[] args) throws InterruptedException {
-        // Pass everything purely as functional parameters
         ServerMain.create(8080, String::toUpperCase);
     }
 }
