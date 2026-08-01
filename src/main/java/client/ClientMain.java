@@ -1,6 +1,6 @@
 package client;
 
-import shared.MessageCodec;
+import shared.JsonCodec;
 import shared.Request;
 import shared.Response;
 
@@ -24,7 +24,7 @@ public class ClientMain implements AutoCloseable {
     }
 
     public Response send_message(Request request) throws IOException {
-        String payload = MessageCodec.serialize(request) + "\n";
+        String payload = JsonCodec.serialize(request) + "\n";
         
         socketChannel.write(ByteBuffer.wrap(payload.getBytes(StandardCharsets.UTF_8)));
 
@@ -37,7 +37,7 @@ public class ClientMain implements AutoCloseable {
         buffer.flip();
         String rawResponse = StandardCharsets.UTF_8.decode(buffer).toString().trim();
 
-        return MessageCodec.deserialize(rawResponse, Response.class);
+        return JsonCodec.deserialize(rawResponse, Response.class);
     }
 
     @Override

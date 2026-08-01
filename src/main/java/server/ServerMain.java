@@ -1,6 +1,6 @@
 package server;
 
-import shared.MessageCodec;
+import shared.JsonCodec;
 import shared.Request;
 import shared.Response;
 
@@ -11,10 +11,6 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
-
-
-// TODO: setup players logic and authentications and such
-// Save everything in a hashmap of all players (online and offline) and save it to disk with a probability after operations
 
 public class ServerMain {
 
@@ -51,11 +47,11 @@ public class ServerMain {
 
     private static String parseAndExecute(String jsonLine, Function<Request, Response> handler) {
         try {
-            Request request = MessageCodec.deserialize(jsonLine, Request.class);
+            Request request = JsonCodec.deserialize(jsonLine, Request.class);
             Response response = handler.apply(request);
-            return MessageCodec.serialize(response);
+            return JsonCodec.serialize(response);
         } catch (Exception e) {
-            return MessageCodec.serializeError(e.getMessage());
+            return JsonCodec.serializeError(e.getMessage());
         }
     }
 
