@@ -9,6 +9,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 public class ClientMain implements AutoCloseable {
 
@@ -50,8 +51,13 @@ public class ClientMain implements AutoCloseable {
     public static void main(String[] args) {
         try (ClientMain client = ClientMain.create("localhost", 8080)) {
             
-            System.out.println(client.send_message(new Request("uppercase", "functional pipelines rule")));
-            System.out.println(client.send_message(new Request("reverse", "no static configurations")));
+            Request registerRequest = new Request.Register("register", "alice", "secret123");
+            Response registerResponse = client.send_message(registerRequest);
+            System.out.println(registerResponse);
+
+            Request submitRequest = new Request.SubmitProposal("submitProposal", List.of("apple", "banana", "cherry", "orange"));
+            Response submitResponse = client.send_message(submitRequest);
+            System.out.println(submitResponse);
 
         } catch (IOException e) {
             System.err.println("Client runtime error: " + e.getMessage());

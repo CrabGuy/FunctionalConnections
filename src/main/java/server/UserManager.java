@@ -3,24 +3,21 @@ package server;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.Comparator;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import shared.JsonCodec;
+import java.util.Optional;
 
 public class UserManager {
     private final ConcurrentHashMap<String, User> users = new ConcurrentHashMap<>();
     
     public boolean register(String username, String passwordHash) {
-        if (users.containsKey(username)) return false;
-        users.put(username, new User(username, passwordHash));
-        return true;
+        return users.putIfAbsent(username, new User(username, passwordHash)) == null;
     }
     
     public boolean authenticate(String username, String passwordHash) {
-        User user = users.get(username);
-        return user != null && user.passwordHash.equals(passwordHash);
+        return Optional.ofNullable(users.get(username))
+            .filter(u -> u.passwordHash.equals(passwordHash))
+            .isPresent();
     }
     
     public boolean updateCredentials(String username, String oldPasswordHash, 
@@ -28,17 +25,16 @@ public class UserManager {
         User user = users.get(username);
         if (user == null || !user.passwordHash.equals(oldPasswordHash)) return false;
         
-        if (newUsername != null && !newUsername.equals(username) && users.containsKey(newUsername)) 
-            return false;
+        boolean renaming = newUsername != null && !newUsername.equals(username);
+        if (renaming && users.containsKey(newUsername)) return false;
         
-        if (newUsername != null && !newUsername.equals(username)) {
+        if (renaming) {
             users.remove(username);
             user.username = newUsername;
             users.put(newUsername, user);
         }
         
-        if (newPasswordHash != null) user.passwordHash = newPasswordHash;
-        
+        Optional.ofNullable(newPasswordHash).ifPresent(p -> user.passwordHash = p);
         return true;
     }
     
@@ -46,49 +42,33 @@ public class UserManager {
         return users.get(username);
     }
     
-    public List<User> getLeaderboard() {
+    public Stream<User> getLeaderboard() {
         return users.values().stream()
-            .sorted(Comparator
-                .comparingInt((User u) -> u.getWins()).reversed())
-            .collect(Collectors.toList());
+            .sorted(Comparator.comparingInt(User::getWins).reversed());
     }
     
     public List<User> getTopK(int k) {
-        return getLeaderboard().stream().limit(k).collect(Collectors.toList());
+        return getLeaderboard()
+            .limit(k)
+            .collect(Collectors.toList());
     }
     
     public int getPosition(String username) {
-        List<User> board = getLeaderboard();
-        return (int) board.stream()
+        return (int) getLeaderboard()
             .takeWhile(u -> !u.username.equals(username))
             .count() + 1;
     }
     
-    public void updateStats(String username, int mistakes) {
-        User user = users.get(username);
-        if (user == null) return;
-
-        boolean won = mistakes < user.gameMistakes.length - 1;
-
-        user.currentStreak = won ? user.currentStreak + 1 : 0;
-        user.maxStreak = Math.max(user.maxStreak, user.currentStreak);
-
-        user.gameMistakes[mistakes]++;
+    public void updateStats(String username, int mistakes, int rightGuesses) {
+        Optional.ofNullable(users.get(username)).ifPresent(user -> {
+            boolean won = mistakes < 4;
+            user.currentStreak = won ? user.currentStreak + 1 : 0;
+            user.maxStreak = Math.max(user.maxStreak, user.currentStreak);
+            user.games.add(new User.GameResult(mistakes, rightGuesses));
+        });
     }
     
     public boolean usernameExists(String username) {
         return users.containsKey(username);
-    }
-    
-    public void saveToFile(String filePath) throws IOException {
-        String json = JsonCodec.serialize(users);
-        Files.write(Paths.get(filePath), json.getBytes());
-    }
-    
-    public void loadFromFile(String filePath) throws IOException {
-        String json = Files.readString(Paths.get(filePath));
-        @SuppressWarnings("unchecked")
-        ConcurrentHashMap<String, User> loaded = JsonCodec.deserialize(json, ConcurrentHashMap.class);
-        users.putAll(loaded);
     }
 }

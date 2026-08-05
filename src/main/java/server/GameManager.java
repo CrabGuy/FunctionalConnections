@@ -2,6 +2,7 @@ package server;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -9,15 +10,31 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-//TODO: wire game manager and user manager to the server and to show an API for the client.
-// Also remember to send the UDP message to the client when time expires
-// Extract the saving/loading of a hashmap to/from a json file and apply it to both
+//TODO: This is doing too much, separate individual games, game manager, player progress/history
 
 public final class GameManager {
 
     public record WordGroup(String category, Set<String> words) {}
 
-    public record PlayerProgress(int solvedCount, int mistakesMade) {}
+    public record Guess(Set<String> words, boolean isCorrect) {}
+
+    public record PlayerProgress(List<Guess> history) {
+        public PlayerProgress {
+            history = List.copyOf(history);
+        }
+
+        public long solvedCount() {
+            return history.stream().filter(Guess::isCorrect).count();
+        }
+
+        public long mistakesMade() {
+            return history.stream().filter(g -> !g.isCorrect()).count();
+        }
+
+        public boolean containsGuess(Set<String> words) {
+            return history.stream().anyMatch(g -> g.words().equals(words));
+        }
+    }
 
     public record Game(
         long id,
@@ -25,7 +42,12 @@ public final class GameManager {
         Duration duration,
         int maxMistakesAllowed,
         Map<String, PlayerProgress> playerStates
-    ) {}
+    ) {
+        public Game {
+            wordGroups = List.copyOf(wordGroups);
+            playerStates = Map.copyOf(playerStates);
+        }
+    }
 
     public enum Status { IN_PROGRESS, WON, LOST }
 
@@ -35,7 +57,7 @@ public final class GameManager {
     private final int maxMistakesAllowed;
 
     public GameManager(List<List<WordGroup>> puzzleBank, Duration gameDuration, int maxMistakesAllowed) {
-        this.puzzleBank = puzzleBank;
+        this.puzzleBank = List.copyOf(puzzleBank);
         this.gameDuration = gameDuration;
         this.maxMistakesAllowed = maxMistakesAllowed;
     }
@@ -67,7 +89,7 @@ public final class GameManager {
     }
 
     public Status getPlayerStatus(Game game, String player) {
-        var progress = game.playerStates().getOrDefault(player, new PlayerProgress(0, 0));
+        var progress = game.playerStates().getOrDefault(player, new PlayerProgress(List.of()));
         if (progress.solvedCount() == game.wordGroups().size()) return Status.WON;
         if (progress.mistakesMade() >= game.maxMistakesAllowed()) return Status.LOST;
         return Status.IN_PROGRESS;
@@ -86,22 +108,26 @@ public final class GameManager {
             return game;
         }
 
-        var current = game.playerStates().getOrDefault(player, new PlayerProgress(0, 0));
+        var currentProgress = game.playerStates().getOrDefault(player, new PlayerProgress(List.of()));
+        
+        if (currentProgress.containsGuess(guess)) {
+            return game;
+        }
+
         boolean isCorrect = game.wordGroups().stream().anyMatch(group -> group.words().equals(guess));
+        
+        var updatedHistory = new ArrayList<>(currentProgress.history());
+        updatedHistory.add(new Guess(Set.copyOf(guess), isCorrect));
 
-        var updated = isCorrect 
-            ? new PlayerProgress(current.solvedCount() + 1, current.mistakesMade())
-            : new PlayerProgress(current.solvedCount(), current.mistakesMade() + 1);
-
-        var newStates = new HashMap<>(game.playerStates());
-        newStates.put(player, updated);
+        var updatedStates = new HashMap<>(game.playerStates());
+        updatedStates.put(player, new PlayerProgress(updatedHistory));
 
         return new Game(
             game.id(),
             game.wordGroups(),
             game.duration(),
             game.maxMistakesAllowed(),
-            Map.copyOf(newStates)
+            updatedStates
         );
     }
 }
