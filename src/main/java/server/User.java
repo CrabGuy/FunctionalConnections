@@ -3,7 +3,7 @@ package server;
 import java.util.ArrayList;
 import java.util.List;
 
-class User {
+public class User {
     public record GameResult(int mistakes, int rightGuesses) {}
 
     public String username;

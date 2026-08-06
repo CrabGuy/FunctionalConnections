@@ -1,5 +1,10 @@
 package server;
 
+import com.fasterxml.jackson.databind.type.TypeFactory;
+import shared.JsonCodec;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -56,11 +61,32 @@ public final class GameManager {
     private final Duration gameDuration;
     private final int maxMistakesAllowed;
 
-    public GameManager(List<List<WordGroup>> puzzleBank, Duration gameDuration, int maxMistakesAllowed) {
-        this.puzzleBank = List.copyOf(puzzleBank);
+    public GameManager(String filePath, Duration gameDuration, int maxMistakesAllowed) {
+        this.puzzleBank = loadPuzzleBank(filePath);
         this.gameDuration = gameDuration;
         this.maxMistakesAllowed = maxMistakesAllowed;
     }
+
+    private static List<List<WordGroup>> loadPuzzleBank(String filePath) {
+        try {
+            String jsonContent = Files.readString(Path.of(filePath));
+            var typeFactory = TypeFactory.defaultInstance();
+            var type = typeFactory.constructCollectionType(List.class, GameDataDto.class);
+
+            List<GameDataDto> rawGames = JsonCodec.deserialize(jsonContent, type);
+
+            return rawGames.stream()
+                    .map(game -> game.groups().stream()
+                            .map(group -> new WordGroup(group.theme(), Set.copyOf(group.words())))
+                            .toList())
+                    .toList();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load puzzle bank from " + filePath, e);
+        }
+    }
+
+    private record GameDataDto(int gameId, List<WordGroupDto> groups) {}
+    private record WordGroupDto(String theme, List<String> words) {}
 
     public long getCurrentGameId() {
         return Instant.now().toEpochMilli() / gameDuration.toMillis();
