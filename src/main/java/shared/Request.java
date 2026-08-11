@@ -4,9 +4,11 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import server.GameManager;
 import server.UserManager;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 @JsonTypeInfo(
@@ -96,14 +98,25 @@ public sealed interface Request {
     }
 
     record RequestGameInfo(String operation, Long gameId) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
             long targetId = Optional.ofNullable(gameId).orElseGet(gameManager::getCurrentGameId);
-
+            
             return gameManager.getGame(targetId)
-                .or(() -> targetId == gameManager.getCurrentGameId() ? Optional.of(gameManager.getActiveGame()) : Optional.empty())
-                .map(game -> new Response(true, "GAME_ID:" + game.id() + ",REMAINING_TIME_MS:" + gameManager.getRemainingTime(game).toMillis(), null))
-                .orElseGet(() -> new Response(false, null, "GAME_NOT_FOUND"));
+                    .or(() -> targetId == gameManager.getCurrentGameId() ? Optional.of(gameManager.getActiveGame()) : Optional.empty())
+                    .map(game -> {
+                        List<String> wordsList = game.wordGroups().stream()
+                                .flatMap(group -> group.words().stream())
+                                .distinct()
+                                .collect(Collectors.toList());
+
+                        Collections.shuffle(wordsList, new Random(game.id()));
+
+                        String formattedWords = String.join(", ", wordsList);
+                        long remainingTimeMs = gameManager.getRemainingTime(game).toMillis();
+
+                        return new Response(true, "\nGAME_ID: " + game.id() + "\nREMAINING_TIME_MS: " + remainingTimeMs + "\nWORDS: " + formattedWords, null);
+                    })
+                    .orElseGet(() -> new Response(false, null, "GAME_NOT_FOUND"));
         }
     }
 

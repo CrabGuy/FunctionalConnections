@@ -1,3 +1,7 @@
 /target/*
 .vscode/*
 *.json
+.*ignore
+.*/
+*.md
+*.log
