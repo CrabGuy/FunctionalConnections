@@ -1,26 +1,31 @@
+
 package shared;
 
 import server.GameManager;
 import server.UserManager;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Random;
+import java.util.Set;
 import java.util.stream.Collectors;
-
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
+
+// Keep this as the json encoder gives a parsing error if removed
 @JsonTypeInfo(
     use = JsonTypeInfo.Id.NAME,
     include = JsonTypeInfo.As.PROPERTY,
     property = "operation"
 )
 public sealed interface Request {
-
     String operation();
 
     Response handle(GameManager gameManager, UserManager userManager, String currentUser);
 
     record Register(String operation, String username, String psw) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
             return Optional.ofNullable(username)
                     .filter(u -> !u.isBlank() && psw != null && !psw.isBlank())
@@ -32,7 +37,6 @@ public sealed interface Request {
     }
 
     record UpdateCredentials(String operation, String oldUsername, String oldPsw, String newUsername, String newPsw) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
             return Optional.ofNullable(oldUsername)
                     .filter(u -> currentUser == null || currentUser.equals(u))
@@ -44,7 +48,6 @@ public sealed interface Request {
     }
 
     record Login(String operation, String username, String psw) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
             return Optional.ofNullable(username)
                     .filter(u -> userManager.authenticate(username, psw))
@@ -54,7 +57,6 @@ public sealed interface Request {
     }
 
     record Logout(String operation) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
             return Optional.ofNullable(currentUser)
                     .map(u -> new Response(true, "Logout successful", null))
@@ -63,7 +65,6 @@ public sealed interface Request {
     }
 
     record SubmitProposal(String operation, List<String> words) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
             if (currentUser == null) {
                 return new Response(false, null, "USER_NOT_LOGGED_IN");
@@ -86,7 +87,7 @@ public sealed interface Request {
                         var progress = game.playerStates().get(currentUser);
                         boolean lastGuessCorrect = progress.history().get(progress.history().size() - 1).isCorrect();
 
-                        userManager.updateStats(currentUser, (int) progress.mistakesMade(), (int) progress.solvedCount());
+                        userManager.updateStats(currentUser, activeGame.id(), (int) progress.mistakesMade(), (int) progress.solvedCount());
 
                         return new Response(true, "STATUS: " + status + " | LAST GUESS CORRECT: " + lastGuessCorrect, null);
                     })
@@ -103,7 +104,6 @@ public sealed interface Request {
     }
 
     record RequestGameInfo(String operation, Long gameId) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
             long targetId = Optional.ofNullable(gameId).orElseGet(gameManager::getCurrentGameId);
 
@@ -127,10 +127,20 @@ public sealed interface Request {
     }
 
     record RequestGameStats(String operation, Long gameId) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
-            long targetId = Optional.ofNullable(gameId).orElseGet(gameManager::getCurrentGameId);
+            if (currentUser == null) {
+                return new Response(false, null, "USER_NOT_LOGGED_IN");
+            }
 
+            var activeGame = gameManager.getActiveGame();
+            if (gameManager.getRemainingTime(activeGame).isZero()) {
+                var progress = activeGame.playerStates().get(currentUser);
+                if (progress != null && progress.solvedCount() < activeGame.wordGroups().size()) {
+                    userManager.updateStats(currentUser, activeGame.id(), activeGame.maxMistakesAllowed(), (int) progress.solvedCount());
+                }
+            }
+
+            long targetId = Optional.ofNullable(gameId).orElseGet(gameManager::getCurrentGameId);
             return gameManager.getGame(targetId)
                     .map(game -> {
                         var status = gameManager.getPlayerStatus(game, currentUser);
@@ -142,8 +152,15 @@ public sealed interface Request {
     }
 
     record RequestLeaderboard(String operation, String playerName, Integer topPlayers) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
+            var activeGame = gameManager.getActiveGame();
+            if (currentUser != null && gameManager.getRemainingTime(activeGame).isZero()) {
+                var progress = activeGame.playerStates().get(currentUser);
+                if (progress != null && progress.solvedCount() < activeGame.wordGroups().size()) {
+                    userManager.updateStats(currentUser, activeGame.id(), activeGame.maxMistakesAllowed(), (int) progress.solvedCount());
+                }
+            }
+
             return Optional.ofNullable(playerName)
                     .filter(userManager::usernameExists)
                     .map(name -> new Response(true, "POSITION:" + userManager.getPosition(name), null))
@@ -156,12 +173,23 @@ public sealed interface Request {
     }
 
     record RequestPlayerStats(String operation) implements Request {
-        @Override
         public Response handle(GameManager gameManager, UserManager userManager, String currentUser) {
+            if (currentUser == null) {
+                return new Response(false, null, "USER_NOT_LOGGED_IN");
+            }
+
+            var activeGame = gameManager.getActiveGame();
+            if (gameManager.getRemainingTime(activeGame).isZero()) {
+                var progress = activeGame.playerStates().get(currentUser);
+                if (progress != null && progress.solvedCount() < activeGame.wordGroups().size()) {
+                    userManager.updateStats(currentUser, activeGame.id(), activeGame.maxMistakesAllowed(), (int) progress.solvedCount());
+                }
+            }
+
             return Optional.ofNullable(currentUser)
                     .map(userManager::get)
                     .map(user -> new Response(true, "USER:" + user.username + ",WINS:" + user.getWins() + ",CURRENT_STREAK:" + user.currentStreak + ",MAX_STREAK:" + user.maxStreak, null))
-                    .orElseGet(() -> new Response(false, null, "USER_NOT_LOGGED_IN"));
+                    .orElseGet(() -> new Response(false, null, "USER_NOT_FOUND"));
         }
     }
 }
