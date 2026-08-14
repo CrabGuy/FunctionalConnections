@@ -8,8 +8,10 @@ import java.util.Optional;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.IntStream;
 
 public final class UiHandler {
+
     public record Credentials(String username, String password) {}
 
     public static void clearScreen() {
@@ -20,6 +22,7 @@ public final class UiHandler {
     public static String showAuthMenu(Scanner scanner) {
         System.out.println("==========================================");
         System.out.println("          === CONNECTIONS GAME ===");
+        System.out.println("==========================================");
         System.out.println("1: Register");
         System.out.println("2: Login");
         System.out.println("3: Update Credentials");
@@ -31,8 +34,9 @@ public final class UiHandler {
     public static String showGameMenu(Scanner scanner, String username) {
         System.out.println("\n==========================================");
         System.out.println("      --- MAIN MENU (" + username + ") ---");
-        System.out.println("1: Continuous Play Mode");
-        System.out.println("2: Refresh Game Words & Info");
+        System.out.println("==========================================");
+        System.out.println("1: Play Active Game");
+        System.out.println("2: Refresh Game Info");
         System.out.println("3: Current Game Stats");
         System.out.println("4: Player Overall Stats");
         System.out.println("5: Leaderboards");
@@ -48,55 +52,136 @@ public final class UiHandler {
         String username = scanner.nextLine().trim();
         System.out.print("Password: ");
         String password = scanner.nextLine().trim();
-
         return Optional.of(new Credentials(username, password))
                 .filter(c -> !c.username().isBlank() && !c.password().isBlank());
     }
 
     public static String readTargetPlayer(Scanner scanner) {
-        System.out.print("Search specific player (press Enter for Top List): ");
+        System.out.print("Search specific player (press Enter for Top 10): ");
         return scanner.nextLine().trim();
     }
 
-    public static List<String> parseProposalInput(String input) {
-        return Arrays.stream(input.split("[,\\s]+"))
+    public static List<String> parseProposalInput(String input, List<String> availableWords) {
+        List<String> rawTokens = Arrays.stream(input.split("[,\\s]+"))
                 .filter(s -> !s.isBlank())
                 .map(String::trim)
                 .toList();
+
+        boolean isNumeric = rawTokens.stream().allMatch(t -> t.matches("\\d+"));
+        if (isNumeric) {
+            return rawTokens.stream()
+                    .map(Integer::parseInt)
+                    .filter(idx -> idx >= 1 && idx <= availableWords.size())
+                    .map(idx -> availableWords.get(idx - 1))
+                    .distinct()
+                    .toList();
+        }
+
+        return rawTokens;
     }
 
     public static String promptProposal(Scanner scanner) {
-        System.out.print("\nEnter 4 words (or 'back'): ");
+        System.out.print("\nEnter 4 word numbers or words (or 'back'): ");
         return scanner.nextLine().trim();
     }
 
-    public static void printResponse(Response response, String successPrefix, String errorMsg) {
-        Optional.ofNullable(response)
-                .ifPresentOrElse(
-                        res -> Optional.of(res)
-                                .filter(Response::success)
-                                .ifPresentOrElse(
-                                        s -> System.out.println(successPrefix + (s.result() != null ? ":\n" + s.result() : "")),
-                                        () -> System.out.println(errorMsg + ": " + res.error())
-                                ),
-                        () -> System.out.println(errorMsg + ": No response from server")
-                );
+    public static List<String> renderGameBoard(Response infoResponse, ClientState state, Function<Long, Void> gameIdConsumer) {
+        if (infoResponse == null || !infoResponse.success() || infoResponse.result() == null) {
+            System.out.println("[!] Could not fetch puzzle details.");
+            return List.of();
+        }
+
+        extractGameId(infoResponse.result()).ifPresent(gameIdConsumer::apply);
+
+        List<String> allWords = extractWords(infoResponse.result());
+        Set<String> allSolved = state.getAllSolvedWords();
+        List<String> remainingWords = allWords.stream()
+                .filter(w -> !allSolved.contains(w.toUpperCase()))
+                .toList();
+
+        System.out.println("==========================================");
+        System.out.println("           CONNECTIONS BOARD");
+        System.out.println("==========================================");
+
+        List<Set<String>> solvedGroups = state.getSolvedGroups();
+        if (!solvedGroups.isEmpty()) {
+            System.out.println("Solved Groups:");
+            IntStream.range(0, solvedGroups.size())
+                    .forEach(i -> System.out.println("  Group " + (i + 1) + ": " + String.join(", ", solvedGroups.get(i))));
+            System.out.println("------------------------------------------");
+        }
+
+        if (!remainingWords.isEmpty()) {
+            System.out.println("Remaining Words:");
+            IntStream.range(0, remainingWords.size())
+                    .forEach(i -> System.out.printf("%2d) %-15s%s", (i + 1), remainingWords.get(i), (i + 1) % 4 == 0 ? "\n" : ""));
+            if (remainingWords.size() % 4 != 0) System.out.println();
+            System.out.println("------------------------------------------");
+        }
+
+        System.out.print("Mistakes remaining: ");
+        int remainingMistakes = Math.max(0, state.getMaxMistakes() - state.getMistakesMade());
+        IntStream.range(0, state.getMaxMistakes())
+                .mapToObj(i -> i < state.getMistakesMade() ? "[X]" : "[ ]")
+                .forEach(s -> System.out.print(s + " "));
+        System.out.println("(" + remainingMistakes + " left)");
+        System.out.println("==========================================");
+
+        return remainingWords;
     }
 
-    public static void printFilteredGameInfo(Response response, Set<String> solvedWords, Function<Long, Void> gameIdConsumer) {
+    public static void printLeaderboard(Response response) {
         if (response == null || !response.success() || response.result() == null) {
-            printResponse(response, "Current Game Info", "Could not fetch game info");
+            System.out.println("[!] Leaderboard unavailable.");
             return;
         }
 
-        extractGameId(response.result()).ifPresent(gameIdConsumer::apply);
+        System.out.println("\n--- LEADERBOARD ---");
+        String result = response.result();
+        if (result.startsWith("POSITION:")) {
+            System.out.println("Player Rank: " + result.replace("POSITION:", ""));
+        } else {
+            Arrays.stream(result.split(","))
+                    .filter(s -> !s.isBlank())
+                    .forEach(entry -> {
+                        String[] parts = entry.split(":");
+                        if (parts.length == 2) {
+                            System.out.printf("• %-15s - %s wins\n", parts[0], parts[1]);
+                        }
+                    });
+        }
+    }
 
-        String filteredResult = Arrays.stream(response.result().split("\n"))
-                .map(line -> line.startsWith("WORDS:") ? filterWordsLine(line, solvedWords) : line)
-                .reduce((a, b) -> a + "\n" + b)
-                .orElse(response.result());
+    public static void printPlayerStats(Response response) {
+        if (response == null || !response.success() || response.result() == null) {
+            System.out.println("[!] Stats unavailable.");
+            return;
+        }
 
-        System.out.println("Current Game Info:\n" + filteredResult);
+        System.out.println("\n--- PLAYER STATS ---");
+        Arrays.stream(response.result().split(","))
+                .forEach(kv -> {
+                    String[] p = kv.split(":");
+                    if (p.length == 2) {
+                        System.out.printf("%-15s: %s\n", p[0], p[1]);
+                    }
+                });
+    }
+
+    public static void printGameStats(Response response) {
+        if (response == null || !response.success() || response.result() == null) {
+            System.out.println("[!] Game stats unavailable.");
+            return;
+        }
+
+        System.out.println("\n--- CURRENT GAME STATS ---");
+        Arrays.stream(response.result().split(","))
+                .forEach(kv -> {
+                    String[] p = kv.split(":");
+                    if (p.length == 2) {
+                        System.out.printf("%-15s: %s\n", p[0], p[1]);
+                    }
+                });
     }
 
     private static Optional<Long> extractGameId(String resultText) {
@@ -107,13 +192,13 @@ public final class UiHandler {
                 .findFirst();
     }
 
-    private static String filterWordsLine(String wordsLine, Set<String> solvedWords) {
-        String rawWords = wordsLine.replace("WORDS:", "").trim();
-        List<String> remainingWords = Arrays.stream(rawWords.split(",\\s*"))
-                .filter(w -> !solvedWords.contains(w.toUpperCase()))
-                .toList();
-
-        return "WORDS: " + String.join(", ", remainingWords);
+    private static List<String> extractWords(String resultText) {
+        return Arrays.stream(resultText.split("\n"))
+                .filter(line -> line.startsWith("WORDS:"))
+                .findFirst()
+                .map(line -> line.replace("WORDS:", "").trim())
+                .map(raw -> Arrays.stream(raw.split(",\\s*")).toList())
+                .orElse(List.of());
     }
 
     public static void pauseForUser(Scanner scanner) {
