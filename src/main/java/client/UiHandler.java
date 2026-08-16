@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
@@ -20,6 +21,7 @@ public final class UiHandler {
     }
 
     public static String showAuthMenu(Scanner scanner) {
+        clearScreen();
         System.out.println("==========================================");
         System.out.println("          === CONNECTIONS GAME ===");
         System.out.println("==========================================");
@@ -31,23 +33,30 @@ public final class UiHandler {
         return scanner.nextLine().trim();
     }
 
-    public static String showGameMenu(Scanner scanner, String username) {
-        System.out.println("\n==========================================");
+    public static void renderGameMenuHeader(String username, Response gameInfo, ClientState state) {
+        clearScreen();
+        System.out.println("==========================================");
         System.out.println("      --- MAIN MENU (" + username + ") ---");
         System.out.println("==========================================");
+        renderGameBoard(gameInfo, state, state::updateGame);
+        System.out.println("\n------------------------------------------");
         System.out.println("1: Play Active Game");
-        System.out.println("2: Refresh Game Info");
-        System.out.println("3: Current Game Stats");
-        System.out.println("4: Player Overall Stats");
-        System.out.println("5: Leaderboards");
-        System.out.println("6: Update Credentials");
-        System.out.println("7: Logout");
+        System.out.println("2: Current Game Stats");
+        System.out.println("3: Player Overall Stats");
+        System.out.println("4: Leaderboards");
+        System.out.println("5: Update Credentials");
+        System.out.println("6: Logout");
         System.out.print("Choose option: ");
+    }
+
+    public static String showGameMenu(Scanner scanner, String username, Response gameInfo, ClientState state) {
+        renderGameMenuHeader(username, gameInfo, state);
         return scanner.nextLine().trim();
     }
 
     public static Optional<Credentials> readCredentials(Scanner scanner, String action) {
-        System.out.println("\n--- " + action + " ---");
+        clearScreen();
+        System.out.println("--- " + action + " ---");
         System.out.print("Username: ");
         String username = scanner.nextLine().trim();
         System.out.print("Password: ");
@@ -67,6 +76,8 @@ public final class UiHandler {
                 .map(String::trim)
                 .toList();
 
+        if (rawTokens.isEmpty()) return List.of();
+
         boolean isNumeric = rawTokens.stream().allMatch(t -> t.matches("\\d+"));
         if (isNumeric) {
             return rawTokens.stream()
@@ -77,7 +88,7 @@ public final class UiHandler {
                     .toList();
         }
 
-        return rawTokens;
+        return rawTokens.stream().distinct().toList();
     }
 
     public static String promptProposal(Scanner scanner) {
@@ -85,13 +96,13 @@ public final class UiHandler {
         return scanner.nextLine().trim();
     }
 
-    public static List<String> renderGameBoard(Response infoResponse, ClientState state, Function<Long, Void> gameIdConsumer) {
+    public static List<String> renderGameBoard(Response infoResponse, ClientState state, Consumer<Long> gameIdConsumer) {
         if (infoResponse == null || !infoResponse.success() || infoResponse.result() == null) {
             System.out.println("[!] Could not fetch puzzle details.");
             return List.of();
         }
 
-        extractGameId(infoResponse.result()).ifPresent(gameIdConsumer::apply);
+        extractGameId(infoResponse.result()).ifPresent(gameIdConsumer::accept);
 
         List<String> allWords = extractWords(infoResponse.result());
         Set<String> allSolved = state.getAllSolvedWords();
@@ -99,8 +110,7 @@ public final class UiHandler {
                 .filter(w -> !allSolved.contains(w.toUpperCase()))
                 .toList();
 
-        System.out.println("==========================================");
-        System.out.println("           CONNECTIONS BOARD");
+        System.out.println("\n           CONNECTIONS BOARD");
         System.out.println("==========================================");
 
         List<Set<String>> solvedGroups = state.getSolvedGroups();
@@ -125,9 +135,12 @@ public final class UiHandler {
                 .mapToObj(i -> i < state.getMistakesMade() ? "[X]" : "[ ]")
                 .forEach(s -> System.out.print(s + " "));
         System.out.println("(" + remainingMistakes + " left)");
-        System.out.println("==========================================");
 
         return remainingWords;
+    }
+
+    public static List<String> renderGameBoard(Response infoResponse, ClientState state, Function<Long, Void> gameIdConsumer) {
+        return renderGameBoard(infoResponse, state, (Consumer<Long>) gameIdConsumer::apply);
     }
 
     public static void printLeaderboard(Response response) {
@@ -140,16 +153,15 @@ public final class UiHandler {
         String result = response.result();
         if (result.startsWith("POSITION:")) {
             System.out.println("Player Rank: " + result.replace("POSITION:", ""));
-        } else {
-            Arrays.stream(result.split(","))
-                    .filter(s -> !s.isBlank())
-                    .forEach(entry -> {
-                        String[] parts = entry.split(":");
-                        if (parts.length == 2) {
-                            System.out.printf("• %-15s - %s wins\n", parts[0], parts[1]);
-                        }
-                    });
+            return;
         }
+
+        Arrays.stream(result.split(","))
+                .filter(entry -> entry.contains(":"))
+                .forEach(entry -> {
+                    String[] parts = entry.split(":");
+                    System.out.printf("• %-15s - %s wins\n", parts[0], parts[1]);
+                });
     }
 
     public static void printPlayerStats(Response response) {
@@ -160,11 +172,10 @@ public final class UiHandler {
 
         System.out.println("\n--- PLAYER STATS ---");
         Arrays.stream(response.result().split(","))
+                .filter(kv -> kv.contains(":"))
                 .forEach(kv -> {
                     String[] p = kv.split(":");
-                    if (p.length == 2) {
-                        System.out.printf("%-15s: %s\n", p[0], p[1]);
-                    }
+                    System.out.printf("%-15s: %s\n", p[0], p[1]);
                 });
     }
 
@@ -176,11 +187,10 @@ public final class UiHandler {
 
         System.out.println("\n--- CURRENT GAME STATS ---");
         Arrays.stream(response.result().split(","))
+                .filter(kv -> kv.contains(":"))
                 .forEach(kv -> {
                     String[] p = kv.split(":");
-                    if (p.length == 2) {
-                        System.out.printf("%-15s: %s\n", p[0], p[1]);
-                    }
+                    System.out.printf("%-15s: %s\n", p[0], p[1]);
                 });
     }
 

@@ -3,18 +3,21 @@ package client;
 import shared.Request;
 import shared.Response;
 
-import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Scanner;
 import java.util.Set;
 
 public final class ClientMain {
-
+    private static final int UDP_PORT = 9876;
     private final NetworkClient networkClient;
     private final ClientState state;
+    private volatile boolean needsRefresh = false;
 
-    public ClientMain(String host, int port) throws IOException {
+    public ClientMain(String host, int port) throws Exception {
         this.networkClient = new NetworkClient(host, port);
         this.state = new ClientState();
     }
@@ -22,15 +25,36 @@ public final class ClientMain {
     public static void main(String[] args) {
         try (Scanner scanner = new Scanner(System.in)) {
             ClientMain app = new ClientMain("localhost", 8080);
+            app.startUdpListener();
             app.runAuthLoop(scanner);
         } catch (Exception e) {
             System.err.println("Client error: " + e.getMessage());
         }
     }
 
+    private void startUdpListener() {
+        Thread.ofPlatform().daemon().start(() -> {
+            try (DatagramSocket socket = new DatagramSocket(UDP_PORT)) {
+                byte[] buffer = new byte[1024];
+                while (!Thread.currentThread().isInterrupted()) {
+                    DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                    socket.receive(packet);
+                    String message = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8).trim();
+                    if (message.startsWith("GAME_UPDATE:") && state.getCurrentUser() != null) {
+                        Long newGameId = Long.parseLong(message.replace("GAME_UPDATE:", ""));
+                        if (state.getCurrentGameId() == null || !state.getCurrentGameId().equals(newGameId)) {
+                            needsRefresh = true;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("UDP Listener error: " + e.getMessage());
+            }
+        });
+    }
+
     private void runAuthLoop(Scanner scanner) {
         while (state.getCurrentUser() == null) {
-            UiHandler.clearScreen();
             String choice = UiHandler.showAuthMenu(scanner);
             switch (choice) {
                 case "1" -> handleRegister(scanner);
@@ -51,17 +75,21 @@ public final class ClientMain {
 
     private void runGameLoop(Scanner scanner) {
         while (state.getCurrentUser() != null) {
-            UiHandler.clearScreen();
-            fetchGameInfoSilently();
-            String option = UiHandler.showGameMenu(scanner, state.getCurrentUser());
+            needsRefresh = false;
+            Response gameInfo = requestSilent(new Request.RequestGameInfo("gameInfo", null));
+            String option = UiHandler.showGameMenu(scanner, state.getCurrentUser(), gameInfo, state);
+            
+            if (needsRefresh) {
+                continue;
+            }
+
             switch (option) {
                 case "1" -> interactivePlayLoop(scanner);
-                case "2" -> fetchGameInfoSilently();
-                case "3" -> fetchGameStats();
-                case "4" -> fetchPlayerStats();
-                case "5" -> fetchLeaderboard(scanner);
-                case "6" -> handleUpdateCredentials(scanner, state.getCurrentUser());
-                case "7" -> handleLogout();
+                case "2" -> fetchGameStats();
+                case "3" -> fetchPlayerStats();
+                case "4" -> fetchLeaderboard(scanner);
+                case "5" -> handleUpdateCredentials(scanner, state.getCurrentUser());
+                case "6" -> handleLogout();
                 default -> System.out.println("\n[!] Invalid selection.");
             }
             if (state.getCurrentUser() != null && !"1".equals(option)) {
@@ -73,13 +101,18 @@ public final class ClientMain {
 
     private void interactivePlayLoop(Scanner scanner) {
         String feedback = "";
-        while (true) {
+
+        while (state.getCurrentUser() != null) {
+            if (needsRefresh) {
+                UiHandler.clearScreen();
+                System.out.println("\n[!] A new game has started! Returning to main menu...");
+                UiHandler.pauseForUser(scanner);
+                break;
+            }
+
             UiHandler.clearScreen();
             Response gameInfo = requestSilent(new Request.RequestGameInfo("gameInfo", null));
-            List<String> availableWords = UiHandler.renderGameBoard(gameInfo, state, id -> {
-                state.updateGame(id);
-                return null;
-            });
+            List<String> availableWords = UiHandler.renderGameBoard(gameInfo, state, state::updateGame);
 
             syncGameStats();
 
@@ -98,13 +131,20 @@ public final class ClientMain {
             }
 
             String input = UiHandler.promptProposal(scanner);
+            if (needsRefresh) {
+                UiHandler.clearScreen();
+                System.out.println("\n[!] A new game has started! Returning to main menu...");
+                UiHandler.pauseForUser(scanner);
+                break;
+            }
+
             if ("back".equalsIgnoreCase(input) || "exit".equalsIgnoreCase(input)) {
                 break;
             }
 
             List<String> words = UiHandler.parseProposalInput(input, availableWords);
             if (words.size() != 4) {
-                feedback = "[!] Please select exactly 4 distinct words or numbers.";
+                feedback = "✗ Invalid input! Please provide 4 valid words or indices.";
                 continue;
             }
 
@@ -125,16 +165,11 @@ public final class ClientMain {
             if (res.result() != null && res.result().contains("LAST GUESS CORRECT: true")) {
                 Set<String> upperWords = new HashSet<>(words.stream().map(String::toUpperCase).toList());
                 state.addSolvedGroup(upperWords);
-                syncGameStats();
                 return "✓ Correct group found!";
-            } else {
-                syncGameStats();
-                return "✗ Incorrect combination. Try again.";
             }
-        } else {
-            syncGameStats();
-            return "✗ Proposal Rejected: " + (res != null ? res.error() : "No response");
+            return "✗ Incorrect group suggestion.";
         }
+        return "✗ Proposal Rejected: " + (res != null ? res.error() : "No response");
     }
 
     private List<String> getRemainingWordsFromInfo() {
@@ -159,16 +194,6 @@ public final class ClientMain {
                     if ("MISTAKES".equals(kv[0])) state.setMistakesMade(Integer.parseInt(kv[1]));
                 }
             }
-        }
-    }
-
-    private void fetchGameInfoSilently() {
-        Response res = requestSilent(new Request.RequestGameInfo("gameInfo", null));
-        if (res != null && res.success()) {
-            UiHandler.renderGameBoard(res, state, id -> {
-                state.updateGame(id);
-                return null;
-            });
         }
     }
 
@@ -242,8 +267,7 @@ public final class ClientMain {
         System.out.print("New Password: ");
         String newPsw = scanner.nextLine().trim();
 
-        Request req = new Request.UpdateCredentials("updateCredentials", targetUsername, oldPsw, newUsername, newPsw);
-        Response res = requestSilent(req);
+        Response res = requestSilent(new Request.UpdateCredentials("updateCredentials", targetUsername, oldPsw, newUsername, newPsw));
         if (res != null && res.success()) {
             System.out.println("✓ Credentials updated.");
             if (state.getCurrentUser() != null) state.setCurrentUser(newUsername);
@@ -257,7 +281,7 @@ public final class ClientMain {
     private Response requestSilent(Request request) {
         try {
             return networkClient.sendRequest(request);
-        } catch (IOException e) {
+        } catch (Exception e) {
             return new Response(false, null, "Communication failure: " + e.getMessage());
         }
     }
