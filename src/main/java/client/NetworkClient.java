@@ -21,15 +21,23 @@ public final class NetworkClient implements AutoCloseable {
         String payload = JsonCodec.serialize(request) + "\n";
         socketChannel.write(ByteBuffer.wrap(payload.getBytes(StandardCharsets.UTF_8)));
 
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
-        int bytesRead = socketChannel.read(buffer);
-        if (bytesRead == -1) {
-            throw new IOException("Connection closed by server.");
+        StringBuilder response = new StringBuilder();
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
+        while (true) {
+            int bytesRead = socketChannel.read(buffer);
+            if (bytesRead == -1) {
+                throw new IOException("Connection closed by server.");
+            }
+            buffer.flip();
+            response.append(StandardCharsets.UTF_8.decode(buffer));
+            buffer.clear();
+            int newlineIndex = response.indexOf("\n");
+            if (newlineIndex != -1) {
+                response.setLength(newlineIndex);
+                break;
+            }
         }
-
-        buffer.flip();
-        String rawResponse = StandardCharsets.UTF_8.decode(buffer).toString().trim();
-        return JsonCodec.deserialize(rawResponse, Response.class);
+        return JsonCodec.deserialize(response.toString().trim(), Response.class);
     }
 
     @Override

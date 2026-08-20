@@ -1,10 +1,7 @@
 package server;
 
 import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class UserManager {
@@ -15,24 +12,27 @@ public class UserManager {
     }
 
     public boolean authenticate(String username, String passwordHash) {
-        return Optional.ofNullable(users.get(username))
-                .filter(u -> u.passwordHash.equals(passwordHash))
-                .isPresent();
+        User user = users.get(username);
+        return user != null && user.passwordHash.equals(passwordHash);
     }
 
     public boolean updateCredentials(String username, String oldPasswordHash, String newUsername, String newPasswordHash) {
         User user = users.get(username);
-        if (user == null || !user.passwordHash.equals(oldPasswordHash)) return false;
-
-        boolean renaming = newUsername != null && !newUsername.equals(username);
-        if (renaming && users.containsKey(newUsername)) return false;
-
-        if (renaming) {
-            users.remove(username);
-            users.put(newUsername, user);
+        if (user == null || !user.passwordHash.equals(oldPasswordHash)) {
+            return false;
         }
-
-        Optional.ofNullable(newPasswordHash).ifPresent(p -> user.passwordHash = p);
+        String targetUsername = newUsername == null || newUsername.isBlank() ? username : newUsername;
+        if (!targetUsername.equals(username) && users.containsKey(targetUsername)) {
+            return false;
+        }
+        if (!targetUsername.equals(username)) {
+            users.remove(username);
+            user.username = targetUsername;
+            users.put(targetUsername, user);
+        }
+        if (newPasswordHash != null && !newPasswordHash.isBlank()) {
+            user.passwordHash = newPasswordHash;
+        }
         return true;
     }
 
@@ -45,23 +45,19 @@ public class UserManager {
                 .sorted(Comparator.comparingInt(User::getWins).reversed());
     }
 
-    public List<User> getTopK(int k) {
-        return getLeaderboard()
-                .limit(k)
-                .collect(Collectors.toList());
-    }
-
     public int getPosition(String username) {
         return (int) getLeaderboard()
-                .takeWhile(u -> !u.username.equals(username))
+                .takeWhile(user -> !user.username.equals(username))
                 .count() + 1;
     }
 
-    public void updateStats(String username, long gameId, int mistakes, int rightGuesses) {
-        Optional.ofNullable(users.get(username)).ifPresent(user -> {
-            user.games.put(gameId, new User.GameResult(mistakes, rightGuesses));
-            user.recalculateStreaks();
-        });
+    public void recordCompletedGame(String username, long gameId, int mistakes, int rightGuesses) {
+        User user = users.get(username);
+        if (user == null) {
+            return;
+        }
+        user.games.putIfAbsent(gameId, new User.GameResult(mistakes, rightGuesses));
+        user.recalculateStreaks();
     }
 
     public boolean usernameExists(String username) {

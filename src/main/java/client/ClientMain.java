@@ -76,16 +76,14 @@ public final class ClientMain {
     private void runGameLoop(Scanner scanner) {
         while (state.getCurrentUser() != null) {
             needsRefresh = false;
-            Response gameInfo = requestSilent(new Request.RequestGameInfo("gameInfo", null));
+            Response gameInfo = requestSilent(new Request.RequestGameState("requestGameState", null));
             String option = UiHandler.showGameMenu(scanner, state.getCurrentUser(), gameInfo, state);
-            
             if (needsRefresh) {
                 continue;
             }
-
             switch (option) {
                 case "1" -> interactivePlayLoop(scanner);
-                case "2" -> fetchGameStats();
+                case "2" -> fetchGameStats(scanner);
                 case "3" -> fetchPlayerStats();
                 case "4" -> fetchLeaderboard(scanner);
                 case "5" -> handleUpdateCredentials(scanner, state.getCurrentUser());
@@ -101,7 +99,6 @@ public final class ClientMain {
 
     private void interactivePlayLoop(Scanner scanner) {
         String feedback = "";
-
         while (state.getCurrentUser() != null) {
             if (needsRefresh) {
                 UiHandler.clearScreen();
@@ -109,17 +106,13 @@ public final class ClientMain {
                 UiHandler.pauseForUser(scanner);
                 break;
             }
-
             UiHandler.clearScreen();
-            Response gameInfo = requestSilent(new Request.RequestGameInfo("gameInfo", null));
+            Response gameInfo = requestSilent(new Request.RequestGameState("requestGameState", null));
             List<String> availableWords = UiHandler.renderGameBoard(gameInfo, state, state::updateGame);
-
-            syncGameStats();
-
+            syncGameState(gameInfo);
             if (!feedback.isBlank()) {
                 System.out.println("\n" + feedback);
             }
-
             if (state.isGameOver()) {
                 if ("WON".equalsIgnoreCase(state.getStatus())) {
                     System.out.println("\n🎉 CONGRATULATIONS! You solved all groups and WON this game!");
@@ -129,7 +122,6 @@ public final class ClientMain {
                 UiHandler.pauseForUser(scanner);
                 break;
             }
-
             String input = UiHandler.promptProposal(scanner);
             if (needsRefresh) {
                 UiHandler.clearScreen();
@@ -137,19 +129,15 @@ public final class ClientMain {
                 UiHandler.pauseForUser(scanner);
                 break;
             }
-
             if ("back".equalsIgnoreCase(input) || "exit".equalsIgnoreCase(input)) {
                 break;
             }
-
             List<String> words = UiHandler.parseProposalInput(input, availableWords);
             if (words.size() != 4) {
                 feedback = "✗ Invalid input! Please provide 4 valid words or indices.";
                 continue;
             }
-
             feedback = processProposal(words);
-
             if (state.getSolvedGroups().size() == 3 && !state.isGameOver()) {
                 List<String> remainingWords = getRemainingWordsFromInfo();
                 if (remainingWords.size() == 4) {
@@ -160,93 +148,101 @@ public final class ClientMain {
     }
 
     private String processProposal(List<String> words) {
-        Response res = requestSilent(new Request.SubmitProposal("submitProposal", words));
-        if (res != null && res.success()) {
-            if (res.result() != null && res.result().contains("LAST GUESS CORRECT: true")) {
+        Response response = requestSilent(new Request.SendAnswer("sendAnswer", words));
+        if (response != null && response.success()) {
+            if (response.result() != null && response.result().contains("LAST GUESS CORRECT: true")) {
                 Set<String> upperWords = new HashSet<>(words.stream().map(String::toUpperCase).toList());
                 state.addSolvedGroup(upperWords);
                 return "✓ Correct group found!";
             }
             return "✗ Incorrect group suggestion.";
         }
-        return "✗ Proposal Rejected: " + (res != null ? res.error() : "No response");
+        return "✗ Proposal Rejected: " + (response != null ? response.error() : "No response");
     }
 
     private List<String> getRemainingWordsFromInfo() {
-        Response infoRes = requestSilent(new Request.RequestGameInfo("gameInfo", null));
-        if (infoRes == null || !infoRes.success() || infoRes.result() == null) {
+        Response infoResponse = requestSilent(new Request.RequestGameState("requestGameState", null));
+        if (infoResponse == null || !infoResponse.success() || infoResponse.result() == null) {
             return List.of();
         }
         Set<String> allSolved = state.getAllSolvedWords();
-        return UiHandler.renderGameBoard(infoRes, state, id -> null).stream()
-                .filter(w -> !allSolved.contains(w.toUpperCase()))
+        return UiHandler.renderGameBoard(infoResponse, state, id -> {}).stream()
+                .filter(word -> !allSolved.contains(word.toUpperCase()))
                 .toList();
     }
 
-    private void syncGameStats() {
-        Response statsRes = requestSilent(new Request.RequestGameStats("gameStats", null));
-        if (statsRes != null && statsRes.success() && statsRes.result() != null) {
-            String[] parts = statsRes.result().split(",");
-            for (String part : parts) {
-                String[] kv = part.split(":");
-                if (kv.length == 2) {
-                    if ("STATUS".equals(kv[0])) state.setStatus(kv[1]);
-                    if ("MISTAKES".equals(kv[0])) state.setMistakesMade(Integer.parseInt(kv[1]));
-                }
+    private void syncGameState(Response gameInfo) {
+        if (gameInfo == null || !gameInfo.success() || gameInfo.result() == null) {
+            return;
+        }
+        String[] lines = gameInfo.result().split("\\R");
+        for (String line : lines) {
+            String[] kv = line.split(":", 2);
+            if (kv.length < 2) {
+                continue;
+            }
+            if ("STATUS".equals(kv[0])) {
+                state.setStatus(kv[1].trim());
+            }
+            if ("MISTAKES".equals(kv[0])) {
+                state.setMistakesMade(Integer.parseInt(kv[1].trim()));
             }
         }
     }
 
-    private void fetchGameStats() {
-        Response res = requestSilent(new Request.RequestGameStats("gameStats", null));
-        UiHandler.printGameStats(res);
+    private void fetchGameStats(Scanner scanner) {
+        System.out.print("Enter game ID (press Enter for current game): ");
+        String input = scanner.nextLine().trim();
+        Long gameId = input.isBlank() ? null : Long.parseLong(input);
+        Response response = requestSilent(new Request.RequestGameStatistics("requestGameStatistics", gameId));
+        UiHandler.printGameStats(response);
     }
 
     private void fetchPlayerStats() {
-        Response res = requestSilent(new Request.RequestPlayerStats("playerStats"));
-        UiHandler.printPlayerStats(res);
+        Response response = requestSilent(new Request.RequestPersonalStats("requestPersonalStats"));
+        UiHandler.printPlayerStats(response);
     }
 
     private void fetchLeaderboard(Scanner scanner) {
         String targetPlayer = UiHandler.readTargetPlayer(scanner);
-        Request req = targetPlayer.isBlank()
-                ? new Request.RequestLeaderboard("leaderboard", null, 10)
-                : new Request.RequestLeaderboard("leaderboard", targetPlayer, null);
-        Response res = requestSilent(req);
-        UiHandler.printLeaderboard(res);
+        Request request = targetPlayer.isBlank()
+                ? new Request.RequestLeaderboardInfo("requestLeaderboardInfo", null, 10)
+                : new Request.RequestLeaderboardInfo("requestLeaderboardInfo", targetPlayer, null);
+        Response response = requestSilent(request);
+        UiHandler.printLeaderboard(response);
     }
 
     private void handleRegister(Scanner scanner) {
         UiHandler.readCredentials(scanner, "Register")
-                .ifPresent(creds -> {
-                    Response res = requestSilent(new Request.Register("register", creds.username(), creds.password()));
-                    if (res != null && res.success()) {
+                .ifPresent(credentials -> {
+                    Response response = requestSilent(new Request.Signup("signup", credentials.username(), credentials.password()));
+                    if (response != null && response.success()) {
                         System.out.println("✓ Registered successfully.");
-                        loginUser(creds.username(), creds.password());
+                        loginUser(credentials.username(), credentials.password());
                     } else {
-                        System.out.println("✗ Registration failed: " + (res != null ? res.error() : "Error"));
+                        System.out.println("✗ Registration failed: " + (response != null ? response.error() : "Error"));
                     }
                 });
     }
 
     private void handleLogin(Scanner scanner) {
         UiHandler.readCredentials(scanner, "Login")
-                .ifPresent(creds -> loginUser(creds.username(), creds.password()));
+                .ifPresent(credentials -> loginUser(credentials.username(), credentials.password()));
     }
 
     private void loginUser(String username, String password) {
-        Response res = requestSilent(new Request.Login("login", username, password));
-        if (res != null && res.success()) {
+        Response response = requestSilent(new Request.Login("login", username, password));
+        if (response != null && response.success()) {
             state.setCurrentUser(username);
             System.out.println("✓ Logged in as " + username);
         } else {
-            System.out.println("✗ Login failed: " + (res != null ? res.error() : "Error"));
+            System.out.println("✗ Login failed: " + (response != null ? response.error() : "Error"));
         }
     }
 
     private void handleLogout() {
-        Response res = requestSilent(new Request.Logout("logout"));
-        if (res != null && res.success()) {
+        Response response = requestSilent(new Request.Logout("logout"));
+        if (response != null && response.success()) {
             System.out.println("✓ Logged out successfully.");
         }
         state.reset();
@@ -260,20 +256,27 @@ public final class ClientMain {
             targetUsername = scanner.nextLine().trim();
         }
         System.out.print("Current Password: ");
-        String oldPsw = scanner.nextLine().trim();
+        String oldPassword = scanner.nextLine().trim();
         System.out.print("New Username (press Enter to keep current): ");
         String newUsernameInput = scanner.nextLine().trim();
         String newUsername = newUsernameInput.isBlank() ? targetUsername : newUsernameInput;
         System.out.print("New Password: ");
-        String newPsw = scanner.nextLine().trim();
-
-        Response res = requestSilent(new Request.UpdateCredentials("updateCredentials", targetUsername, oldPsw, newUsername, newPsw));
-        if (res != null && res.success()) {
+        String newPassword = scanner.nextLine().trim();
+        Response response = requestSilent(new Request.UpdateCredentials(
+                "updateCredentials",
+                targetUsername,
+                oldPassword,
+                newUsername,
+                newPassword
+        ));
+        if (response != null && response.success()) {
             System.out.println("✓ Credentials updated.");
-            if (state.getCurrentUser() != null) state.setCurrentUser(newUsername);
+            if (state.getCurrentUser() != null) {
+                state.setCurrentUser(newUsername);
+            }
             return true;
         } else {
-            System.out.println("✗ Update failed: " + (res != null ? res.error() : "Error"));
+            System.out.println("✗ Update failed: " + (response != null ? response.error() : "Error"));
             return false;
         }
     }
