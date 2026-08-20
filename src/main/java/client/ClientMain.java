@@ -150,11 +150,28 @@ public final class ClientMain {
     private String processProposal(List<String> words) {
         Response response = requestSilent(new Request.SendAnswer("sendAnswer", words));
         if (response != null && response.success()) {
-            if (response.result() != null && response.result().contains("LAST GUESS CORRECT: true")) {
+            String result = response.result();
+            String status = null;
+            boolean lastGuessCorrect = false;
+            if (result != null) {
+                String[] parts = result.split("\\|");
+                for (String part : parts) {
+                    String trimmed = part.trim();
+                    if (trimmed.startsWith("STATUS:")) {
+                        status = trimmed.substring("STATUS:".length()).trim();
+                    } else if (trimmed.startsWith("LAST GUESS CORRECT:")) {
+                        lastGuessCorrect = Boolean.parseBoolean(trimmed.substring("LAST GUESS CORRECT:".length()).trim());
+                    }
+                }
+            }
+            if (lastGuessCorrect) {
                 Set<String> upperWords = new HashSet<>(words.stream().map(String::toUpperCase).toList());
                 state.addSolvedGroup(upperWords);
+                if (status != null) state.setStatus(status);
                 return "✓ Correct group found!";
             }
+            state.setMistakesMade(state.getMistakesMade() + 1);
+            if (status != null) state.setStatus(status);
             return "✗ Incorrect group suggestion.";
         }
         return "✗ Proposal Rejected: " + (response != null ? response.error() : "No response");

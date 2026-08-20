@@ -1,5 +1,8 @@
 package shared;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.NamedType;
@@ -10,11 +13,19 @@ public final class JsonCodec {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     static {
+        MAPPER.findAndRegisterModules();
+        MAPPER.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
+        MAPPER.setVisibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.NONE);
+        MAPPER.setVisibility(PropertyAccessor.IS_GETTER, JsonAutoDetect.Visibility.NONE);
+        MAPPER.setVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.NONE);
+        MAPPER.setVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY);
+        MAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
         Class<?>[] subclasses = Request.class.getPermittedSubclasses();
         if (subclasses != null) {
             NamedType[] types = Arrays.stream(subclasses)
-                .map(cls -> new NamedType(cls, uncapitalize(cls.getSimpleName())))
-                .toArray(NamedType[]::new);
+                    .map(cls -> new NamedType(cls, uncapitalize(cls.getSimpleName())))
+                    .toArray(NamedType[]::new);
             MAPPER.registerSubtypes(types);
         }
     }
@@ -30,7 +41,7 @@ public final class JsonCodec {
         try {
             return MAPPER.writeValueAsString(object);
         } catch (Exception e) {
-            throw new RuntimeException("Serialization error", e);
+            throw new RuntimeException("Serialization error: " + e.getMessage(), e);
         }
     }
 
@@ -41,7 +52,7 @@ public final class JsonCodec {
             T result = (T) MAPPER.readValue(json, type);
             return result;
         } catch (Exception e) {
-            throw new RuntimeException("Deserialization error", e);
+            throw new RuntimeException("Deserialization error: " + e.getMessage(), e);
         }
     }
 
@@ -49,7 +60,7 @@ public final class JsonCodec {
         try {
             return MAPPER.readValue(json, type);
         } catch (Exception e) {
-            throw new RuntimeException("Deserialization error", e);
+            throw new RuntimeException("Deserialization error: " + e.getMessage(), e);
         }
     }
 

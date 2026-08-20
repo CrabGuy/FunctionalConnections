@@ -289,6 +289,7 @@ public final class RequestProcessor {
         long wins = players.stream()
                 .filter(player -> gameManager.getPlayerStatus(game, player) == GameManager.Status.WON)
                 .count();
+        String base = "GAME_ID:" + game.id() + "\n";
         if (gameManager.getRemainingTime(game).isZero()) {
             double averageScore = total == 0
                     ? 0
@@ -296,13 +297,15 @@ public final class RequestProcessor {
                             .mapToInt(player -> (int) progress(game, player).solvedCount())
                             .average()
                             .orElse(0);
-            return "TOTAL_PLAYERS:" + total +
+            return base +
+                    "TOTAL_PLAYERS:" + total +
                     "\nFINISHED:" + finished +
                     "\nWINS:" + wins +
                     "\nAVG_SCORE:" + averageScore;
         }
         long inProgress = total - finished;
-        return "REMAINING_TIME_MS:" + gameManager.getRemainingTime(game).toMillis() +
+        return base +
+                "REMAINING_TIME_MS:" + gameManager.getRemainingTime(game).toMillis() +
                 "\nIN_PROGRESS_PLAYERS:" + inProgress +
                 "\nFINISHED:" + finished +
                 "\nWINS:" + wins;

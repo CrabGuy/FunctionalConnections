@@ -1,5 +1,6 @@
 package server;
 
+import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
@@ -62,5 +63,15 @@ public class UserManager {
 
     public boolean usernameExists(String username) {
         return users.containsKey(username);
+    }
+
+    public void save(Path path) {
+        ConcurrentMapStorage.save(path, users);
+    }
+
+    public void load(Path path) {
+        ConcurrentHashMap<String, User> loaded = ConcurrentMapStorage.load(path, String.class, User.class);
+        users.clear();
+        users.putAll(loaded);
     }
 }

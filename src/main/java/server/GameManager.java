@@ -151,4 +151,14 @@ public final class GameManager {
                 updatedStates
         );
     }
+
+    public void save(Path path) {
+        ConcurrentMapStorage.save(path, games);
+    }
+
+    public void load(Path path) {
+        ConcurrentHashMap<Long, Game> loaded = ConcurrentMapStorage.load(path, Long.class, Game.class);
+        games.clear();
+        games.putAll(loaded);
+    }
 }

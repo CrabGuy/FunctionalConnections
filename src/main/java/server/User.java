@@ -1,5 +1,8 @@
 package server;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -10,11 +13,15 @@ public class User {
     public String passwordHash;
     public int currentStreak = 0;
     public int maxStreak = 0;
-    public final Map<Long, GameResult> games = new ConcurrentHashMap<>();
+    public Map<Long, GameResult> games = new ConcurrentHashMap<>();
 
     public record GameResult(int mistakes, int rightGuesses) {}
 
-    public User(String username, String passwordHash) {
+    @JsonCreator
+    public User(
+            @JsonProperty("username") String username,
+            @JsonProperty("passwordHash") String passwordHash
+    ) {
         this.username = username;
         this.passwordHash = passwordHash;
     }
