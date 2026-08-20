@@ -35,7 +35,7 @@ public class ServerMain {
 
     public ServerMain() {
         this.userManager = new UserManager();
-        this.gameManager = new GameManager("Connections_Data.json", Duration.ofMinutes(10), 5);
+        this.gameManager = new GameManager("Connections_Data.json", Duration.ofMinutes(10), 4);
         this.requestProcessor = new RequestProcessor(gameManager, userManager);
         this.saveIntervalSeconds = Long.getLong("server.save.interval.seconds", DEFAULT_SAVE_INTERVAL_SECONDS);
         loadPersistedData();
