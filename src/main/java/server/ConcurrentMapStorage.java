@@ -1,8 +1,8 @@
 package server;
 
-import shared.JsonCodec;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.type.TypeFactory;
+import shared.JsonCodec;
 
 import java.io.IOException;
 import java.nio.file.Files;

@@ -6,6 +6,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 public class UserManager {
+    public enum UpdateResult {
+        SUCCESS,
+        INVALID_CREDENTIALS,
+        TARGET_USERNAME_TAKEN
+    }
+
     private final ConcurrentHashMap<String, User> users = new ConcurrentHashMap<>();
 
     public boolean register(String username, String passwordHash) {
@@ -17,24 +23,29 @@ public class UserManager {
         return user != null && user.passwordHash.equals(passwordHash);
     }
 
-    public boolean updateCredentials(String username, String oldPasswordHash, String newUsername, String newPasswordHash) {
+    public UpdateResult updateCredentials(String username, String oldPasswordHash,
+                                          String newUsername, String newPasswordHash) {
         User user = users.get(username);
         if (user == null || !user.passwordHash.equals(oldPasswordHash)) {
-            return false;
+            return UpdateResult.INVALID_CREDENTIALS;
         }
+
         String targetUsername = newUsername == null || newUsername.isBlank() ? username : newUsername;
         if (!targetUsername.equals(username) && users.containsKey(targetUsername)) {
-            return false;
+            return UpdateResult.TARGET_USERNAME_TAKEN;
         }
+
         if (!targetUsername.equals(username)) {
             users.remove(username);
             user.username = targetUsername;
             users.put(targetUsername, user);
         }
+
         if (newPasswordHash != null && !newPasswordHash.isBlank()) {
             user.passwordHash = newPasswordHash;
         }
-        return true;
+
+        return UpdateResult.SUCCESS;
     }
 
     public User get(String username) {

@@ -1,8 +1,6 @@
 package shared;
-
-import java.util.List;
-
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import java.util.List;
 
 @JsonTypeInfo(
     use = JsonTypeInfo.Id.NAME,
@@ -10,10 +8,12 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
     property = "operation"
 )
 public sealed interface Request {
+
     String operation();
 
     record Signup(String operation, String username, String psw) implements Request {}
-    record UpdateCredentials(String operation, String oldUsername, String oldPsw, String newUsername, String newPsw) implements Request {}
+    record UpdateCredentials(String operation, String oldUsername, String oldPsw,
+                             String newUsername, String newPsw) implements Request {}
     record Login(String operation, String username, String psw) implements Request {}
     record Logout(String operation) implements Request {}
     record SendAnswer(String operation, List<String> words) implements Request {}

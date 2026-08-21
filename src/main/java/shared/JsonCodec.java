@@ -21,7 +21,13 @@ public final class JsonCodec {
         MAPPER.setVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY);
         MAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-        Class<?>[] subclasses = Request.class.getPermittedSubclasses();
+        registerRequestSubtypes(Request.class);
+    }
+
+    private JsonCodec() {}
+
+    public static void registerRequestSubtypes(Class<?> sealedClass) {
+        Class<?>[] subclasses = sealedClass.getPermittedSubclasses();
         if (subclasses != null) {
             NamedType[] types = Arrays.stream(subclasses)
                     .map(cls -> new NamedType(cls, uncapitalize(cls.getSimpleName())))
@@ -29,8 +35,6 @@ public final class JsonCodec {
             MAPPER.registerSubtypes(types);
         }
     }
-
-    private JsonCodec() {}
 
     private static String uncapitalize(String str) {
         if (str == null || str.isEmpty()) return str;

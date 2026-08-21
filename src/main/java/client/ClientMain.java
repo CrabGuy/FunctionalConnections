@@ -13,6 +13,7 @@ import java.util.Set;
 
 public final class ClientMain {
     private static final int UDP_PORT = 9876;
+
     private final NetworkClient networkClient;
     private final ClientState state;
     private volatile boolean needsRefresh = false;
@@ -106,13 +107,16 @@ public final class ClientMain {
                 UiHandler.pauseForUser(scanner);
                 break;
             }
+
             UiHandler.clearScreen();
             Response gameInfo = requestSilent(new Request.RequestGameState("requestGameState", null));
             List<String> availableWords = UiHandler.renderGameBoard(gameInfo, state, state::updateGame);
             syncGameState(gameInfo);
+
             if (!feedback.isBlank()) {
                 System.out.println("\n" + feedback);
             }
+
             if (state.isGameOver()) {
                 if ("WON".equalsIgnoreCase(state.getStatus())) {
                     System.out.println("\n🎉 CONGRATULATIONS! You solved all groups and WON this game!");
@@ -122,22 +126,28 @@ public final class ClientMain {
                 UiHandler.pauseForUser(scanner);
                 break;
             }
+
             String input = UiHandler.promptProposal(scanner);
+
             if (needsRefresh) {
                 UiHandler.clearScreen();
                 System.out.println("\n[!] A new game has started! Returning to main menu...");
                 UiHandler.pauseForUser(scanner);
                 break;
             }
+
             if ("back".equalsIgnoreCase(input) || "exit".equalsIgnoreCase(input)) {
                 break;
             }
+
             List<String> words = UiHandler.parseProposalInput(input, availableWords);
             if (words.size() != 4) {
                 feedback = "✗ Invalid input! Please provide 4 valid words or indices.";
                 continue;
             }
+
             feedback = processProposal(words);
+
             if (state.getSolvedGroups().size() == 3 && !state.isGameOver()) {
                 List<String> remainingWords = getRemainingWordsFromInfo();
                 if (remainingWords.size() == 4) {
@@ -153,6 +163,7 @@ public final class ClientMain {
             String result = response.result();
             String status = null;
             boolean lastGuessCorrect = false;
+
             if (result != null) {
                 String[] parts = result.split("\\|");
                 for (String part : parts) {
@@ -164,17 +175,19 @@ public final class ClientMain {
                     }
                 }
             }
+
             if (lastGuessCorrect) {
                 Set<String> upperWords = new HashSet<>(words.stream().map(String::toUpperCase).toList());
                 state.addSolvedGroup(upperWords);
                 if (status != null) state.setStatus(status);
                 return "✓ Correct group found!";
             }
+
             state.setMistakesMade(state.getMistakesMade() + 1);
             if (status != null) state.setStatus(status);
             return "✗ Incorrect group suggestion.";
         }
-        return "✗ Proposal Rejected: " + (response != null ? response.error() : "No response");
+        return "✗ Proposal Rejected: " + errorText(response);
     }
 
     private List<String> getRemainingWordsFromInfo() {
@@ -237,7 +250,7 @@ public final class ClientMain {
                         System.out.println("✓ Registered successfully.");
                         loginUser(credentials.username(), credentials.password());
                     } else {
-                        System.out.println("✗ Registration failed: " + (response != null ? response.error() : "Error"));
+                        System.out.println("✗ Registration failed: " + errorText(response));
                     }
                 });
     }
@@ -253,7 +266,7 @@ public final class ClientMain {
             state.setCurrentUser(username);
             System.out.println("✓ Logged in as " + username);
         } else {
-            System.out.println("✗ Login failed: " + (response != null ? response.error() : "Error"));
+            System.out.println("✗ Login failed: " + errorText(response));
         }
     }
 
@@ -261,6 +274,8 @@ public final class ClientMain {
         Response response = requestSilent(new Request.Logout("logout"));
         if (response != null && response.success()) {
             System.out.println("✓ Logged out successfully.");
+        } else {
+            System.out.println("✗ Logout failed: " + errorText(response));
         }
         state.reset();
     }
@@ -272,13 +287,17 @@ public final class ClientMain {
             System.out.print("Username to update: ");
             targetUsername = scanner.nextLine().trim();
         }
+
         System.out.print("Current Password: ");
         String oldPassword = scanner.nextLine().trim();
+
         System.out.print("New Username (press Enter to keep current): ");
         String newUsernameInput = scanner.nextLine().trim();
         String newUsername = newUsernameInput.isBlank() ? targetUsername : newUsernameInput;
+
         System.out.print("New Password: ");
         String newPassword = scanner.nextLine().trim();
+
         Response response = requestSilent(new Request.UpdateCredentials(
                 "updateCredentials",
                 targetUsername,
@@ -286,6 +305,7 @@ public final class ClientMain {
                 newUsername,
                 newPassword
         ));
+
         if (response != null && response.success()) {
             System.out.println("✓ Credentials updated.");
             if (state.getCurrentUser() != null) {
@@ -293,7 +313,7 @@ public final class ClientMain {
             }
             return true;
         } else {
-            System.out.println("✗ Update failed: " + (response != null ? response.error() : "Error"));
+            System.out.println("✗ Update failed: " + errorText(response));
             return false;
         }
     }
@@ -304,5 +324,12 @@ public final class ClientMain {
         } catch (Exception e) {
             return new Response(false, null, "Communication failure: " + e.getMessage());
         }
+    }
+
+    private String errorText(Response response) {
+        if (response == null) {
+            return "Error";
+        }
+        return ErrorDisplay.message(response.error());
     }
 }
