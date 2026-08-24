@@ -5,22 +5,12 @@ import shared.ErrorCode;
 import shared.Request;
 import shared.Response;
 
-public final class LogoutHandler implements RequestHandler {
+public final class LogoutHandler implements RequestHandler<Request.Logout> {
     @Override
-    public String operation() {
-        return "logout";
-    }
-
-    @Override
-    public Response handle(Request request, ServiceContext ctx, String currentUser) {
-        if (!(request instanceof Request.Logout)) {
-            return Response.error(ErrorCode.UNKNOWN_REQUEST);
-        }
-
+    public Response handle(Request.Logout request, ServiceContext ctx, String currentUser) {
         if (currentUser == null) {
             return Response.error(ErrorCode.USER_NOT_LOGGED_IN);
         }
-
         return Response.success("Logout successful");
     }
 }

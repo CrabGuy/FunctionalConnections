@@ -7,11 +7,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Scanner;
 import java.util.Set;
-import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 public final class UiHandler {
     public record Credentials(String username, String password) {}
+
+    public record BoardView(Long gameId, List<String> remainingWords) {}
 
     public static void clearScreen() {
         System.out.print("\033[H\033[2J");
@@ -36,7 +37,7 @@ public final class UiHandler {
         System.out.println("==========================================");
         System.out.println("      --- MAIN MENU (" + username + ") ---");
         System.out.println("==========================================");
-        renderGameBoard(gameInfo, state, state::updateGame);
+        renderGameBoard(gameInfo, state);
         System.out.println("\n------------------------------------------");
         System.out.println("1: Play Active Game");
         System.out.println("2: Game Statistics");
@@ -93,21 +94,32 @@ public final class UiHandler {
         return scanner.nextLine().trim();
     }
 
-    public static List<String> renderGameBoard(Response infoResponse, ClientState state, Consumer<Long> gameIdConsumer) {
+    public static BoardView parseGameBoard(Response infoResponse, ClientState state) {
         if (infoResponse == null || !infoResponse.success() || infoResponse.result() == null) {
-            System.out.println("[!] Could not fetch puzzle details.");
-            return List.of();
+            return new BoardView(null, List.of());
         }
-        extractGameId(infoResponse.result()).ifPresent(gameIdConsumer::accept);
+        Long gameId = extractGameId(infoResponse.result()).orElse(null);
         List<String> allWords = extractWords(infoResponse.result());
         Set<String> allSolved = state.getAllSolvedWords();
         List<String> remainingWords = allWords.stream()
                 .filter(word -> !allSolved.contains(word.toUpperCase()))
                 .toList();
+        return new BoardView(gameId, remainingWords);
+    }
 
+    public static void renderGameBoard(Response infoResponse, ClientState state) {
+        if (infoResponse == null || !infoResponse.success() || infoResponse.result() == null) {
+            System.out.println("[!] Could not fetch puzzle details.");
+            return;
+        }
+        renderGameBoard(parseGameBoard(infoResponse, state), state);
+    }
+
+    public static void renderGameBoard(BoardView board, ClientState state) {
+        List<String> remainingWords = board.remainingWords();
         System.out.println("\n           CONNECTIONS BOARD");
         System.out.println("==========================================");
-        List<Set<String>> solvedGroups = state.getSolvedGroups();
+        List<Set<String>> solvedGroups = state.solvedGroups();
         if (!solvedGroups.isEmpty()) {
             System.out.println("Solved Groups:");
             IntStream.range(0, solvedGroups.size())
@@ -124,12 +136,11 @@ public final class UiHandler {
             System.out.println("------------------------------------------");
         }
         System.out.print("Mistakes remaining: ");
-        int remainingMistakes = Math.max(0, state.getMaxMistakes() - state.getMistakesMade());
-        IntStream.range(0, state.getMaxMistakes())
-                .mapToObj(index -> index < state.getMistakesMade() ? "[X]" : "[ ]")
+        int remainingMistakes = Math.max(0, state.maxMistakes() - state.mistakesMade());
+        IntStream.range(0, state.maxMistakes())
+                .mapToObj(index -> index < state.mistakesMade() ? "[X]" : "[ ]")
                 .forEach(mark -> System.out.print(mark + " "));
         System.out.println("(" + remainingMistakes + " left)");
-        return remainingWords;
     }
 
     public static void printLeaderboard(Response response) {

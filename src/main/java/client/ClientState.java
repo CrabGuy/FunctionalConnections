@@ -6,41 +6,45 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public final class ClientState {
-    private String currentUser;
-    private Long currentGameId;
-    private final List<Set<String>> solvedGroups = new ArrayList<>();
-    private String status = "IN_PROGRESS";
-    private int mistakesMade = 0;
-    private int maxMistakes = 5;
-
-    public String getCurrentUser() {
-        return currentUser;
+public record ClientState(
+        String currentUser,
+        Long currentGameId,
+        List<Set<String>> solvedGroups,
+        String status,
+        int mistakesMade,
+        int maxMistakes
+) {
+    public static ClientState empty() {
+        return new ClientState(null, null, List.of(), "IN_PROGRESS", 0, 5);
     }
 
-    public void setCurrentUser(String currentUser) {
-        this.currentUser = currentUser;
+    public ClientState withCurrentUser(String currentUser) {
+        return new ClientState(currentUser, currentGameId, solvedGroups, status, mistakesMade, maxMistakes);
     }
 
-    public Long getCurrentGameId() {
-        return currentGameId;
-    }
-
-    public void updateGame(Long gameId) {
-        if (this.currentGameId == null || !this.currentGameId.equals(gameId)) {
-            this.currentGameId = gameId;
-            this.solvedGroups.clear();
-            this.status = "IN_PROGRESS";
-            this.mistakesMade = 0;
+    public ClientState withGame(Long gameId) {
+        if (currentGameId != null && currentGameId.equals(gameId)) {
+            return this;
         }
+        return new ClientState(currentUser, gameId, List.of(), "IN_PROGRESS", 0, maxMistakes);
     }
 
-    public void addSolvedGroup(Set<String> words) {
-        this.solvedGroups.add(Set.copyOf(words));
+    public ClientState withSolvedGroup(Set<String> words) {
+        List<Set<String>> updated = new ArrayList<>(solvedGroups);
+        updated.add(Set.copyOf(words));
+        return new ClientState(currentUser, currentGameId, List.copyOf(updated), status, mistakesMade, maxMistakes);
     }
 
-    public List<Set<String>> getSolvedGroups() {
-        return Collections.unmodifiableList(solvedGroups);
+    public ClientState withStatus(String status) {
+        return new ClientState(currentUser, currentGameId, solvedGroups, status, mistakesMade, maxMistakes);
+    }
+
+    public ClientState withMistakesMade(int mistakesMade) {
+        return new ClientState(currentUser, currentGameId, solvedGroups, status, mistakesMade, maxMistakes);
+    }
+
+    public ClientState withReset() {
+        return new ClientState(null, null, List.of(), "IN_PROGRESS", 0, maxMistakes);
     }
 
     public Set<String> getAllSolvedWords() {
@@ -49,35 +53,7 @@ public final class ClientState {
         return Collections.unmodifiableSet(all);
     }
 
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
-    public int getMistakesMade() {
-        return mistakesMade;
-    }
-
-    public void setMistakesMade(int mistakesMade) {
-        this.mistakesMade = mistakesMade;
-    }
-
-    public int getMaxMistakes() {
-        return maxMistakes;
-    }
-
     public boolean isGameOver() {
         return "WON".equalsIgnoreCase(status) || "LOST".equalsIgnoreCase(status);
-    }
-
-    public void reset() {
-        this.currentUser = null;
-        this.currentGameId = null;
-        this.solvedGroups.clear();
-        this.status = "IN_PROGRESS";
-        this.mistakesMade = 0;
     }
 }

@@ -1,73 +1,197 @@
-# Server
+# Connections Game - Project Requirements
 
-- Il server deve essere multithreaded realizzato usando JAVA thread pooling
-- Il client interagisce con il server, secondo il modello client-server (richieste/risposte),
-sulla connessione TCP persistente creata, inviando uno dei comandi elencati in
-sezione 2.1 secondo il formato dei messaggi JSON indicato in sezione 5. Tutte le
-operazioni devono avvenire su questa connessione TCP. E’ richiesto che Il client
-gestisca questa connessione utilizzando NIO
-- Il server definisce strutture dati opportunamente sincronizzate per memorizzare le
-informazioni relative agli utenti e allo stato del gioco corrente o storico di giochi
-passati
-- Quando il server deve mandare comunicazioni asincrone, ad esempio la notifica di
-fine partita allo scadere del tempo, le notifiche vengono inviate utilizzando il
-protocollo UDP. Il client deve quindi essere progettato in modo che sia in grado di
-ricevere dal server notifiche asincrone
+## 1. Game Description
 
-# Client
+Connections is a word grouping game where players must find associations between words. The game features:
 
-## Operations
+- 16 words divided into 4 thematic groups of 4 words each
+- Words are shuffled and displayed to all players
+- Each player can submit grouping proposals (quadruples of words)
+- Maximum of 4 wrong proposals per game
+- One active game per time period for all players
+- Players must wait for the current game period to end before accessing the next game
 
-Always:
-- **Sign up** (un utente può registrarsi indicando un nome utente e password sse il nome utente non è già registrato)
-- **Update credentials** (un utente può aggiornare il proprio nome utente o la password collegata ad un nome utente se è in grado di dimostrare di conoscere la password attualmente associata a quel nome utente)
-- **Login** (un utente può effettuare il login se conosce la password corretta relativa ad un certo nome utente. Effettuare il login automaticamente fa accedere alla partita attualmente in corso ricevendone le informazioni necessarie (set di parole, proposte corrette eventualmente già inviate da quell’utente, numero di errori, tempo rimanente, punteggio corrente))
-- **Logout** (effettuare il logout informa interrompe la possibilità di ricevere notifiche dal server ed inviare proposte sulla partita corrente al server)
+### Scoring System
 
-When logged in:
-- **Send answer** (invia una nuova proposta di 4 parole tra quelle non ancora
-correttamente inserite in un gruppo da quell’utente. All’invio segue risposta
-del server per notificare la correttezza o meno della proposta)
-- **Request game state** (l’utente specifica l’id univoco della partita a cui
-è interessato oppure che è interessato alla partita in corso. Se la partita è in
-corso serve a ricevere il tempo rimanente per quella partita, le proposte
-corrette, le parole rimaste ancora da raggruppare correttamente, il numero
-di errori ed il punteggio corrente. Se la partita è conclusa (per vittoria,
-sconfitta, o tempo scaduto) serve a ricevere la corretta assegnazione delle 16
-parole ai 4 gruppi, il numero di proposte corrette, il numero di errori fatti, ed
-il punteggio ottenuto)
-- **Request game statistics** (l’utente specifica l’id univoco della partita a cui
-è interessato oppure che è interessato alla partita in corso. Se la partita è in
-corso serve a ricevere il tempo rimanente per quella partita, il numero di
-giocatori con quella partita ancora in corso, il numero di giocatori che hanno
-concluso la partita ed il numero di giocatori che hanno concluso la partita
-con una vittoria. Se la partita è conclusa serve a ricevere il numero di
-giocatori che hanno partecipato alla partita, il numero di giocatori che hanno
-concluso la partita, il numero di giocatori che hanno concluso la partita con
-una vittoria ed il punteggio medio dei giocatori che hanno partecipato alla
-partita)
-- **Request leaderboard info** (in base ai parametri della richiesta può richiedere
-l’intera classifica di tutti gli utenti, la classifica dei top K utenti o la posizione
-nella classifica di un certo utente (sia esso il richiedente o meno))
-- **Request personal stats** (per richiedere statistiche sull’utente corrente nella
-seguente forma ispirata alle statistiche offerte dal New York Times: Puzzles Completed, Win Rate %, Loss Rate %, Current Streak, Max Streak, Perfect Puzzles, Mistake Histogram)
+| Action | Points |
+|--------|--------|
+| Participate without proposals | 0 |
+| 1 correct proposal | +6 |
+| 2 correct proposals | +12 |
+| 3 correct proposals (win) | +18 |
+| Each wrong proposal | -4 (max -16 per game) |
 
+### Winning Conditions
+- Submit 3 correct groups of 4 words (last group is implied by elimination)
+- Before time expires
+- Before reaching 4 wrong proposals
 
-# Informazioni generali
-- Il codice deve essere commentato
-- Le classi con un metodo main devono avere Main nel nome
-- E' necessario anche consegnare un file .jar eseguibile per ogni applicazione (client e server)
-- I parametri di input (numeri di porta, inidirizzi, valori di timeout...) devono essere letti automaticamente da file di configurazione da consegnare insieme al resto del codice
-- Bisogna fare una relazione sintetica contentente:
-    - la definizione delle scelte effettuate nei punti del progetto lasciati alla
-personale interpretazione;
-    - uno schema generale dei thread attivati sia lato server che lato client;
-    - una definizione delle strutture dati utilizzate sia lato server che lato client;
-    - una descrizione delle eventuali primitive di sincronizzazione utilizzate dai
-thread per accedere a strutture dati condivise;
-    - una sezione di istruzioni su come compilare ed eseguire il progetto (librerie
-esterne usate, argomenti da passare al codice, sintassi dei comandi per
-eseguire le varie operazioni, ecc.). Questa sezione deve essere un manuale di
-istruzioni chiaro per gli utilizzatori del sistema.
-- Relazione e codice sorgente devono essere consegnati su Moodle in un unico archivio
-compresso in formato zip (non rar, non gz).
+### Example Scoring Scenarios
+- 1 wrong proposal + 1 correct proposal + 1 wrong proposal (time expires): -2 points
+- Win with 3 correct proposals and 3 errors: +6 points
+
+---
+
+## 2. Client-Server Architecture
+
+### 2.1 Client Requirements
+
+**User Management Operations:**
+- **Registration**: User can register with username and password if username is not already taken
+- **Update Credentials**: User can update username or password if they know the current password
+- **Login**: User can login with correct password; automatically joins current game
+- **Logout**: Stops receiving notifications and submitting proposals
+
+**Game Management Operations (logged in only):**
+
+1. **Submit Proposal**: Send 4-word proposal from remaining ungrouped words
+   - Server responds with correctness notification
+
+2. **Request Game Status/Outcome** (by game ID or current game):
+   - **Ongoing game**: Remaining time, correct proposals, remaining words, error count, current score
+   - **Completed game**: Correct word-to-group assignment, correct proposals count, error count, score
+
+3. **Request Game Statistics** (by game ID or current game):
+   - **Ongoing game**: Remaining time, active players count, completed players count, winners count
+   - **Completed game**: Total participants, completed players, winners, average score
+
+**General Information Operations (logged in only):**
+
+1. **Leaderboard Information**:
+   - Full leaderboard for all users
+   - Top K users
+   - Specific user's position
+
+2. **Personal Statistics**:
+   - Puzzles Completed (total)
+   - Win Rate (%)
+   - Loss Rate (%)
+   - Current Streak (consecutive wins)
+   - Max Streak (highest consecutive wins)
+   - Perfect Puzzles (0 mistakes)
+   - Mistake Histogram (0-4 mistakes, failures, incomplete)
+
+**Automatic Participation**: Logged-in players automatically join new games when they start
+
+---
+
+### 2.2 Server Requirements
+
+**Core Responsibilities:**
+- Manage the entire game
+- Coordinate players
+- Enforce game rules
+- Provide real-time updates
+
+**Data Source:**
+- JSON file containing game data (words and groups)
+- 911 games available in the provided file
+- Must handle as large-scale (regardless of actual file size)
+
+**Game Lifecycle:**
+- Creates new games at fixed time intervals
+- One active global game at any time
+- Accepts all logged-in players at any point during game duration
+- Persists user and game information periodically
+- Maintains consistency for server restarts
+
+**Game Management:**
+- Waits for players to login
+- Sends current game information to players (words, remaining time, without revealing groupings)
+- Restores player state if they rejoin during same game
+- Players who completed a game must wait for next game
+
+**Proposal Processing:**
+- Receives and validates player proposals (4 words)
+- Checks if words form a correct and unclaimed group
+- Updates game state accordingly (errors, score)
+- Malformed proposals (already grouped words, invalid words) count as errors but don't affect game state
+
+**Game Termination:**
+- Individual player: wins or loses
+- Global: time expires
+- Sends game results and rankings to all participants
+- Transitions to next game
+
+---
+
+## 3. Implementation Specifications
+
+### Technology Requirements
+
+**Client:**
+- Command-line interface (GUI optional, not evaluated)
+- TCP connection for registration
+- Persistent TCP connection with JSON message format (Section 5)
+- NIO for connection management
+- UDP support for asynchronous notifications (game end notifications)
+
+**Server:**
+- Multithreaded using Java thread pooling
+- Synchronized data structures for users and game state
+- JSON format for user and game persistence files
+- **Old curriculum students only**: Multicast UDP notification service for leaderboard updates
+
+### Required Deliverables
+
+**Code Requirements:**
+- Compiles from command line using `javac`
+- Must be properly commented
+- Classes with `main` method must contain "Main" in filename (e.g., `ServerMain.java`)
+- JAR executable files for client and server
+
+**Configuration:**
+- Parameters (ports, addresses, timeouts, etc.) read from configuration files
+- Separate files for client and server
+- No interactive input or command-line parameters for configuration
+
+**IDE and Libraries:**
+- If using IDE, submit only source code (remove IDE-specific files)
+- Include any external libraries used (JAR format)
+
+**Communication Protocol:**
+- Client commands must follow Section 5 syntax
+
+### Documentation Requirements (Max 5 pages PDF)
+
+1. **Design Choices**: Explanation of decisions made for open-ended parts of the project
+2. **Thread Architecture**: General schema of threads on both client and server
+3. **Data Structures**: Definitions for client and server data structures
+4. **Synchronization**: Description of synchronization primitives for shared data structures
+5. **User Manual**: Clear compilation and execution instructions including:
+   - External libraries used
+   - Arguments required
+   - Command syntax for operations
+
+---
+
+## 4. Submission Instructions
+
+- **Format**: Single ZIP archive (not RAR, not GZ)
+- **Platform**: Moodle
+- **Contents**: Source code + PDF documentation
+
+---
+
+## 5. Communication Protocol Specifications
+
+All client-server communication uses structured textual JSON messages. Every request must include the specified keys, with optional additional elements allowed.
+
+### Operation Formats
+
+| Operation | Request Format | Requirements |
+|-----------|---------------|--------------|
+| **register** | `{ "operation": "register", "username": STRING, "psw": STRING }` | Specify error codes (e.g., username already registered) and JSON response format |
+| **updateCredentials** | `{ "operation": "updateCredentials", "oldUsername": STRING, "newUsername": STRING, "oldPsw": STRING, "newPsw": STRING }` | Specify error codes (e.g., incorrect old password, new username already taken) and JSON response format |
+| **login** | `{ "operation": "login", "username": STRING, "psw": STRING }` | Specify error codes (e.g., incorrect password) and JSON response format |
+| **logout** | `{ "operation": "logout" }` | Specify error codes (e.g., user not logged in) and JSON response format |
+| **submitProposal** | `{ "operation": "submitProposal", "words": [STRING, ..., STRING] }` | Specify error codes (e.g., malformed proposal) and JSON response format for correct or error responses |
+| **requestGameInfo** | `{ "operation": "requestGameInfo", "gameId": INT }` | Specify error codes (e.g., nonexistent game) and JSON response format with Section 2.1 information |
+| **requestGameStats** | `{ "operation": "requestGameStats", "gameId": INT }` | Option to specify current game. Specify error codes and JSON response format with Section 2.1 information |
+| **requestLeaderboard** | `{ "operation": "requestLeaderboard", "playerName": STRING, "topPlayers": INT }` | Can request relative ranking or top K users. Option to specify all players. Specify error codes and JSON response format with Section 2.1 information |
+| **requestPlayersStats** | `{ "operation": "requestPlayersStats" }` | Specify error codes and JSON response format with Section 2.1 information |
+
+### Notes
+- The `gameId` field can be used to specify current game
+- For `requestLeaderboard`, options available for requesting all players or specific ranking information
+- All error codes and detailed response formats must be properly defined

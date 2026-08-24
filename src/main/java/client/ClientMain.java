@@ -13,14 +13,14 @@ import java.util.Set;
 
 public final class ClientMain {
     private static final int UDP_PORT = 9876;
-
     private final NetworkClient networkClient;
-    private final ClientState state;
+    private ClientState state = ClientState.empty();
     private volatile boolean needsRefresh = false;
+
+    private record ProposalOutcome(String feedback, ClientState state) {}
 
     public ClientMain(String host, int port) throws Exception {
         this.networkClient = new NetworkClient(host, port);
-        this.state = new ClientState();
     }
 
     public static void main(String[] args) {
@@ -41,9 +41,9 @@ public final class ClientMain {
                     DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                     socket.receive(packet);
                     String message = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8).trim();
-                    if (message.startsWith("GAME_UPDATE:") && state.getCurrentUser() != null) {
+                    if (message.startsWith("GAME_UPDATE:") && state.currentUser() != null) {
                         Long newGameId = Long.parseLong(message.replace("GAME_UPDATE:", ""));
-                        if (state.getCurrentGameId() == null || !state.getCurrentGameId().equals(newGameId)) {
+                        if (state.currentGameId() == null || !state.currentGameId().equals(newGameId)) {
                             needsRefresh = true;
                         }
                     }
@@ -55,7 +55,7 @@ public final class ClientMain {
     }
 
     private void runAuthLoop(Scanner scanner) {
-        while (state.getCurrentUser() == null) {
+        while (state.currentUser() == null) {
             String choice = UiHandler.showAuthMenu(scanner);
             switch (choice) {
                 case "1" -> handleRegister(scanner);
@@ -67,7 +67,7 @@ public final class ClientMain {
                 }
                 default -> System.out.println("\n[!] Invalid option. Please try again.");
             }
-            if (state.getCurrentUser() == null) {
+            if (state.currentUser() == null) {
                 UiHandler.pauseForUser(scanner);
             }
         }
@@ -75,10 +75,15 @@ public final class ClientMain {
     }
 
     private void runGameLoop(Scanner scanner) {
-        while (state.getCurrentUser() != null) {
+        while (state.currentUser() != null) {
             needsRefresh = false;
             Response gameInfo = requestSilent(new Request.RequestGameState("requestGameState", null));
-            String option = UiHandler.showGameMenu(scanner, state.getCurrentUser(), gameInfo, state);
+            UiHandler.BoardView board = UiHandler.parseGameBoard(gameInfo, state);
+            if (board.gameId() != null) {
+                state = state.withGame(board.gameId());
+            }
+            state = syncGameState(gameInfo, state);
+            String option = UiHandler.showGameMenu(scanner, state.currentUser(), gameInfo, state);
             if (needsRefresh) {
                 continue;
             }
@@ -87,11 +92,11 @@ public final class ClientMain {
                 case "2" -> fetchGameStats(scanner);
                 case "3" -> fetchPlayerStats();
                 case "4" -> fetchLeaderboard(scanner);
-                case "5" -> handleUpdateCredentials(scanner, state.getCurrentUser());
+                case "5" -> handleUpdateCredentials(scanner, state.currentUser());
                 case "6" -> handleLogout();
                 default -> System.out.println("\n[!] Invalid selection.");
             }
-            if (state.getCurrentUser() != null && !"1".equals(option)) {
+            if (state.currentUser() != null && !"1".equals(option)) {
                 UiHandler.pauseForUser(scanner);
             }
         }
@@ -100,25 +105,26 @@ public final class ClientMain {
 
     private void interactivePlayLoop(Scanner scanner) {
         String feedback = "";
-        while (state.getCurrentUser() != null) {
+        while (state.currentUser() != null) {
             if (needsRefresh) {
                 UiHandler.clearScreen();
                 System.out.println("\n[!] A new game has started! Returning to main menu...");
                 UiHandler.pauseForUser(scanner);
                 break;
             }
-
             UiHandler.clearScreen();
             Response gameInfo = requestSilent(new Request.RequestGameState("requestGameState", null));
-            List<String> availableWords = UiHandler.renderGameBoard(gameInfo, state, state::updateGame);
-            syncGameState(gameInfo);
-
+            UiHandler.BoardView board = UiHandler.parseGameBoard(gameInfo, state);
+            if (board.gameId() != null) {
+                state = state.withGame(board.gameId());
+            }
+            state = syncGameState(gameInfo, state);
+            UiHandler.renderGameBoard(gameInfo, state);
             if (!feedback.isBlank()) {
                 System.out.println("\n" + feedback);
             }
-
             if (state.isGameOver()) {
-                if ("WON".equalsIgnoreCase(state.getStatus())) {
+                if ("WON".equalsIgnoreCase(state.status())) {
                     System.out.println("\n🎉 CONGRATULATIONS! You solved all groups and WON this game!");
                 } else {
                     System.out.println("\n❌ GAME OVER! You ran out of attempts or time.");
@@ -126,44 +132,41 @@ public final class ClientMain {
                 UiHandler.pauseForUser(scanner);
                 break;
             }
-
             String input = UiHandler.promptProposal(scanner);
-
             if (needsRefresh) {
                 UiHandler.clearScreen();
                 System.out.println("\n[!] A new game has started! Returning to main menu...");
                 UiHandler.pauseForUser(scanner);
                 break;
             }
-
             if ("back".equalsIgnoreCase(input) || "exit".equalsIgnoreCase(input)) {
                 break;
             }
-
-            List<String> words = UiHandler.parseProposalInput(input, availableWords);
+            List<String> words = UiHandler.parseProposalInput(input, board.remainingWords());
             if (words.size() != 4) {
                 feedback = "✗ Invalid input! Please provide 4 valid words or indices.";
                 continue;
             }
-
-            feedback = processProposal(words);
-
-            if (state.getSolvedGroups().size() == 3 && !state.isGameOver()) {
+            ProposalOutcome outcome = processProposal(words, state);
+            state = outcome.state();
+            feedback = outcome.feedback();
+            if (state.solvedGroups().size() == 3 && !state.isGameOver()) {
                 List<String> remainingWords = getRemainingWordsFromInfo();
                 if (remainingWords.size() == 4) {
-                    processProposal(remainingWords);
+                    ProposalOutcome autoOutcome = processProposal(remainingWords, state);
+                    state = autoOutcome.state();
+                    feedback = autoOutcome.feedback();
                 }
             }
         }
     }
 
-    private String processProposal(List<String> words) {
+    private ProposalOutcome processProposal(List<String> words, ClientState currentState) {
         Response response = requestSilent(new Request.SendAnswer("sendAnswer", words));
         if (response != null && response.success()) {
             String result = response.result();
             String status = null;
             boolean lastGuessCorrect = false;
-
             if (result != null) {
                 String[] parts = result.split("\\|");
                 for (String part : parts) {
@@ -175,19 +178,21 @@ public final class ClientMain {
                     }
                 }
             }
-
             if (lastGuessCorrect) {
                 Set<String> upperWords = new HashSet<>(words.stream().map(String::toUpperCase).toList());
-                state.addSolvedGroup(upperWords);
-                if (status != null) state.setStatus(status);
-                return "✓ Correct group found!";
+                ClientState updated = currentState.withSolvedGroup(upperWords);
+                if (status != null) {
+                    updated = updated.withStatus(status);
+                }
+                return new ProposalOutcome("✓ Correct group found!", updated);
             }
-
-            state.setMistakesMade(state.getMistakesMade() + 1);
-            if (status != null) state.setStatus(status);
-            return "✗ Incorrect group suggestion.";
+            ClientState updated = currentState.withMistakesMade(currentState.mistakesMade() + 1);
+            if (status != null) {
+                updated = updated.withStatus(status);
+            }
+            return new ProposalOutcome("✗ Incorrect group suggestion.", updated);
         }
-        return "✗ Proposal Rejected: " + errorText(response);
+        return new ProposalOutcome("✗ Proposal Rejected: " + errorText(response), currentState);
     }
 
     private List<String> getRemainingWordsFromInfo() {
@@ -195,29 +200,36 @@ public final class ClientMain {
         if (infoResponse == null || !infoResponse.success() || infoResponse.result() == null) {
             return List.of();
         }
+        UiHandler.BoardView board = UiHandler.parseGameBoard(infoResponse, state);
+        if (board.gameId() != null) {
+            state = state.withGame(board.gameId());
+        }
+        state = syncGameState(infoResponse, state);
         Set<String> allSolved = state.getAllSolvedWords();
-        return UiHandler.renderGameBoard(infoResponse, state, id -> {}).stream()
+        return board.remainingWords().stream()
                 .filter(word -> !allSolved.contains(word.toUpperCase()))
                 .toList();
     }
 
-    private void syncGameState(Response gameInfo) {
+    private ClientState syncGameState(Response gameInfo, ClientState currentState) {
         if (gameInfo == null || !gameInfo.success() || gameInfo.result() == null) {
-            return;
+            return currentState;
         }
         String[] lines = gameInfo.result().split("\\R");
+        ClientState updated = currentState;
         for (String line : lines) {
             String[] kv = line.split(":", 2);
             if (kv.length < 2) {
                 continue;
             }
             if ("STATUS".equals(kv[0])) {
-                state.setStatus(kv[1].trim());
+                updated = updated.withStatus(kv[1].trim());
             }
             if ("MISTAKES".equals(kv[0])) {
-                state.setMistakesMade(Integer.parseInt(kv[1].trim()));
+                updated = updated.withMistakesMade(Integer.parseInt(kv[1].trim()));
             }
         }
+        return updated;
     }
 
     private void fetchGameStats(Scanner scanner) {
@@ -263,7 +275,7 @@ public final class ClientMain {
     private void loginUser(String username, String password) {
         Response response = requestSilent(new Request.Login("login", username, password));
         if (response != null && response.success()) {
-            state.setCurrentUser(username);
+            state = state.withCurrentUser(username);
             System.out.println("✓ Logged in as " + username);
         } else {
             System.out.println("✗ Login failed: " + errorText(response));
@@ -277,7 +289,7 @@ public final class ClientMain {
         } else {
             System.out.println("✗ Logout failed: " + errorText(response));
         }
-        state.reset();
+        state = state.withReset();
     }
 
     private boolean handleUpdateCredentials(Scanner scanner, String currentUsername) {
@@ -287,17 +299,13 @@ public final class ClientMain {
             System.out.print("Username to update: ");
             targetUsername = scanner.nextLine().trim();
         }
-
         System.out.print("Current Password: ");
         String oldPassword = scanner.nextLine().trim();
-
         System.out.print("New Username (press Enter to keep current): ");
         String newUsernameInput = scanner.nextLine().trim();
         String newUsername = newUsernameInput.isBlank() ? targetUsername : newUsernameInput;
-
         System.out.print("New Password: ");
         String newPassword = scanner.nextLine().trim();
-
         Response response = requestSilent(new Request.UpdateCredentials(
                 "updateCredentials",
                 targetUsername,
@@ -305,11 +313,10 @@ public final class ClientMain {
                 newUsername,
                 newPassword
         ));
-
         if (response != null && response.success()) {
             System.out.println("✓ Credentials updated.");
-            if (state.getCurrentUser() != null) {
-                state.setCurrentUser(newUsername);
+            if (state.currentUser() != null) {
+                state = state.withCurrentUser(newUsername);
             }
             return true;
         } else {

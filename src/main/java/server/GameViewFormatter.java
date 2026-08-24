@@ -74,7 +74,7 @@ public final class GameViewFormatter {
     }
 
     public String buildPersonalStats(User user) {
-        int completed = user.games.size();
+        int completed = user.games().size();
         int wins = user.getWins();
         int losses = completed - wins;
         double winRate = completed == 0 ? 0 : wins * 100.0 / completed;
@@ -87,8 +87,8 @@ public final class GameViewFormatter {
         return "PUZZLES_COMPLETED:" + completed +
                 "\nWIN_RATE:" + String.format("%.1f", winRate) +
                 "\nLOSS_RATE:" + String.format("%.1f", lossRate) +
-                "\nCURRENT_STREAK:" + user.currentStreak +
-                "\nMAX_STREAK:" + user.maxStreak +
+                "\nCURRENT_STREAK:" + user.currentStreak() +
+                "\nMAX_STREAK:" + user.maxStreak() +
                 "\nPERFECT_PUZZLES:" + user.getPerfectPuzzles() +
                 "\nMISTAKE_HISTOGRAM:" + (histogram.isEmpty() ? "NONE" : histogram);
     }

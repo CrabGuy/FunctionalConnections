@@ -8,30 +8,18 @@ import shared.Response;
 
 import java.util.Optional;
 
-public final class RequestGameStatisticsHandler implements RequestHandler {
+public final class RequestGameStatisticsHandler implements RequestHandler<Request.RequestGameStatistics> {
     @Override
-    public String operation() {
-        return "requestGameStatistics";
-    }
-
-    @Override
-    public Response handle(Request request, ServiceContext ctx, String currentUser) {
-        if (!(request instanceof Request.RequestGameStatistics gameStats)) {
-            return Response.error(ErrorCode.UNKNOWN_REQUEST);
-        }
-
+    public Response handle(Request.RequestGameStatistics request, ServiceContext ctx, String currentUser) {
         if (currentUser == null) {
             return Response.error(ErrorCode.USER_NOT_LOGGED_IN);
         }
-
-        Optional<GameManager.Game> game = ctx.gameQuery().resolveGame(gameStats.gameId());
+        Optional<GameManager.Game> game = ctx.gameQuery().resolveGame(request.gameId());
         if (game.isEmpty()) {
             return Response.error(ErrorCode.GAME_NOT_FOUND);
         }
-
         GameManager.Game g = game.get();
         ctx.gameQuery().recordCompletedGameIfEnded(g, currentUser);
-
         return Response.success(ctx.formatter().buildGameStatistics(g));
     }
 }

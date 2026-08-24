@@ -2,6 +2,7 @@ package server;
 
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
@@ -15,18 +16,18 @@ public class UserManager {
     private final ConcurrentHashMap<String, User> users = new ConcurrentHashMap<>();
 
     public boolean register(String username, String passwordHash) {
-        return users.putIfAbsent(username, new User(username, passwordHash)) == null;
+        return users.putIfAbsent(username, new User(username, passwordHash, Map.of(), 0, 0)) == null;
     }
 
     public boolean authenticate(String username, String passwordHash) {
         User user = users.get(username);
-        return user != null && user.passwordHash.equals(passwordHash);
+        return user != null && user.passwordHash().equals(passwordHash);
     }
 
     public UpdateResult updateCredentials(String username, String oldPasswordHash,
                                           String newUsername, String newPasswordHash) {
         User user = users.get(username);
-        if (user == null || !user.passwordHash.equals(oldPasswordHash)) {
+        if (user == null || !user.passwordHash().equals(oldPasswordHash)) {
             return UpdateResult.INVALID_CREDENTIALS;
         }
 
@@ -35,16 +36,15 @@ public class UserManager {
             return UpdateResult.TARGET_USERNAME_TAKEN;
         }
 
+        User updated = user;
         if (!targetUsername.equals(username)) {
+            updated = updated.withUsername(targetUsername);
             users.remove(username);
-            user.username = targetUsername;
-            users.put(targetUsername, user);
         }
-
         if (newPasswordHash != null && !newPasswordHash.isBlank()) {
-            user.passwordHash = newPasswordHash;
+            updated = updated.withPasswordHash(newPasswordHash);
         }
-
+        users.put(targetUsername, updated);
         return UpdateResult.SUCCESS;
     }
 
@@ -59,17 +59,15 @@ public class UserManager {
 
     public int getPosition(String username) {
         return (int) getLeaderboard()
-                .takeWhile(user -> !user.username.equals(username))
+                .takeWhile(user -> !user.username().equals(username))
                 .count() + 1;
     }
 
     public void recordCompletedGame(String username, long gameId, int mistakes, int rightGuesses) {
-        User user = users.get(username);
-        if (user == null) {
-            return;
-        }
-        user.games.putIfAbsent(gameId, new User.GameResult(mistakes, rightGuesses));
-        user.recalculateStreaks();
+        users.computeIfPresent(username, (name, user) -> {
+            User.GameResult result = new User.GameResult(mistakes, rightGuesses);
+            return user.withAddedGame(gameId, result);
+        });
     }
 
     public boolean usernameExists(String username) {

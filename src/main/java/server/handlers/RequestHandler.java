@@ -4,7 +4,6 @@ import server.ServiceContext;
 import shared.Request;
 import shared.Response;
 
-public interface RequestHandler {
-    String operation();
-    Response handle(Request request, ServiceContext ctx, String currentUser);
+public interface RequestHandler<T extends Request> {
+    Response handle(T request, ServiceContext ctx, String currentUser);
 }
