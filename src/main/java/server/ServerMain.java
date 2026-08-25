@@ -1,9 +1,7 @@
 package server;
 
-import server.handlers.RequestDispatcher;
 import shared.JsonCodec;
 import shared.Request;
-
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -21,10 +19,9 @@ public class ServerMain {
     private static final int UDP_PORT = 9876;
     private static final Path STORAGE_DIR = Path.of("storage").toAbsolutePath().normalize();
     private static final long DEFAULT_SAVE_INTERVAL_SECONDS = 30;
-
+    
     private final UserManager userManager;
     private final GameManager gameManager;
-    private final ServiceContext serviceContext;
     private final RequestDispatcher dispatcher;
     private final AtomicLong lastNotifiedGameId = new AtomicLong(-1);
     private final long saveIntervalSeconds;
@@ -32,14 +29,10 @@ public class ServerMain {
     public ServerMain() {
         this.userManager = new UserManager();
         this.gameManager = new GameManager("Connections_Data.json", Duration.ofMinutes(10), 4);
-        GameQueryService gameQuery = new GameQueryService(gameManager, userManager);
-        GameViewFormatter formatter = new GameViewFormatter(gameManager, gameQuery);
-        this.serviceContext = new ServiceContext(gameManager, userManager, gameQuery, formatter);
-        this.dispatcher = new RequestDispatcher(serviceContext);
+        this.dispatcher = new RequestDispatcher(gameManager, userManager);
         this.saveIntervalSeconds = Long.getLong("server.save.interval.seconds", DEFAULT_SAVE_INTERVAL_SECONDS);
-
+        
         JsonCodec.registerRequestSubtypes(Request.class);
-
         loadPersistedData();
         savePersistedData();
     }
@@ -47,14 +40,13 @@ public class ServerMain {
     public void start(int port) {
         startUdpNotifier();
         startPeriodicSave();
-
         Thread.ofPlatform().start(() -> {
             try (var server = new ServerSocket(port);
                  var executor = Executors.newFixedThreadPool(10)) {
                 System.out.println("Server listening on port " + port);
                 while (!Thread.currentThread().isInterrupted()) {
                     var socket = server.accept();
-                    executor.submit(new ClientSessionHandler(socket, dispatcher, serviceContext));
+                    executor.submit(new ClientSessionHandler(socket, dispatcher));
                 }
             } catch (Exception e) {
                 System.err.println("Server error: " + e.getMessage());
@@ -104,12 +96,10 @@ public class ServerMain {
                 while (!Thread.currentThread().isInterrupted()) {
                     long currentGameId = gameManager.getCurrentGameId();
                     var activeGame = gameManager.getActiveGame();
-
-                    if (gameManager.getRemainingTime(activeGame).isZero()
+                    if (activeGame.remainingTime().isZero()
                             && lastNotifiedGameId.get() != currentGameId + 1) {
                         long nextGameId = currentGameId + 1;
                         lastNotifiedGameId.set(nextGameId);
-
                         byte[] data = ("GAME_UPDATE:" + nextGameId).getBytes(StandardCharsets.UTF_8);
                         DatagramPacket packet = new DatagramPacket(
                                 data,
