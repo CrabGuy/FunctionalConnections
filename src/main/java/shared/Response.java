@@ -1,15 +1,13 @@
 package shared;
 
-public record Response(boolean success, String result, String error) {
-    public static Response success(String result) {
-        return new Response(true, result, null);
+public record Response<T>(boolean success, T result, String error) {
+    public static <T> Response<T> success(T result) {
+        return new Response<>(true, result, null);
     }
-
-    public static Response error(ErrorCode code) {
-        return new Response(false, null, code.code());
+    public static <T> Response<T> error(ErrorCode code) {
+        return new Response<>(false, null, code.code());
     }
-
-    public static Response error(String code) {
-        return new Response(false, null, code);
+    public static <T> Response<T> error(String message) {
+        return new Response<>(false, null, message);
     }
 }

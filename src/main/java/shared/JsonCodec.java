@@ -5,9 +5,6 @@ import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.jsontype.NamedType;
-
-import java.util.Arrays;
 
 public final class JsonCodec {
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -20,26 +17,9 @@ public final class JsonCodec {
         MAPPER.setVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.NONE);
         MAPPER.setVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY);
         MAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-        registerRequestSubtypes(Request.class);
     }
 
     private JsonCodec() {}
-
-    public static void registerRequestSubtypes(Class<?> sealedClass) {
-        Class<?>[] subclasses = sealedClass.getPermittedSubclasses();
-        if (subclasses != null) {
-            NamedType[] types = Arrays.stream(subclasses)
-                    .map(cls -> new NamedType(cls, uncapitalize(cls.getSimpleName())))
-                    .toArray(NamedType[]::new);
-            MAPPER.registerSubtypes(types);
-        }
-    }
-
-    private static String uncapitalize(String str) {
-        if (str == null || str.isEmpty()) return str;
-        return Character.toLowerCase(str.charAt(0)) + str.substring(1);
-    }
 
     public static <T> String serialize(T object) {
         try {
@@ -51,10 +31,7 @@ public final class JsonCodec {
 
     public static <T> T deserialize(String json, Class<T> clazz) {
         try {
-            var type = MAPPER.getTypeFactory().constructType(clazz);
-            @SuppressWarnings("unchecked")
-            T result = (T) MAPPER.readValue(json, type);
-            return result;
+            return MAPPER.readValue(json, clazz);
         } catch (Exception e) {
             throw new RuntimeException("Deserialization error: " + e.getMessage(), e);
         }
@@ -68,7 +45,20 @@ public final class JsonCodec {
         }
     }
 
+    public static <T> Response<T> deserializeResponse(String json, Class<T> resultClass) {
+        try {
+            if (resultClass == Void.class || resultClass == null) {
+                JavaType type = MAPPER.getTypeFactory().constructParametricType(Response.class, Object.class);
+                return MAPPER.readValue(json, type);
+            }
+            JavaType type = MAPPER.getTypeFactory().constructParametricType(Response.class, resultClass);
+            return MAPPER.readValue(json, type);
+        } catch (Exception e) {
+            throw new RuntimeException("Response deserialization error: " + e.getMessage(), e);
+        }
+    }
+
     public static String serializeError(String errorMessage) {
-        return serialize(new Response(false, null, errorMessage));
+        return serialize(Response.error(errorMessage));
     }
 }

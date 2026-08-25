@@ -35,7 +35,7 @@ public final class ClientSessionHandler implements Runnable {
     private String processRequest(String jsonLine) {
         try {
             Request request = JsonCodec.deserialize(jsonLine, Request.class);
-            Response response = dispatcher.dispatch(request, currentUser);
+            Response<?> response = dispatcher.dispatch(request, currentUser);
             if (response.success()) {
                 updateSessionState(request);
             }

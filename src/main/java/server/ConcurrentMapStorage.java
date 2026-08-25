@@ -1,28 +1,18 @@
 package server;
-
-import com.fasterxml.jackson.databind.JavaType;
-import com.fasterxml.jackson.databind.type.TypeFactory;
 import shared.JsonCodec;
-
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
-
 public final class ConcurrentMapStorage {
     private ConcurrentMapStorage() {}
-
     public static <K, V> void save(Path path, ConcurrentHashMap<K, V> map) {
-        Function<ConcurrentHashMap<K, V>, String> serialize = JsonCodec::serialize;
         try {
             Files.createDirectories(path.getParent());
-            Files.writeString(path, serialize.apply(map));
+            Files.writeString(path, JsonCodec.serialize(map));
         } catch (Exception e) {
             throw new RuntimeException("Failed to write JSON to file: " + path, e);
         }
     }
-
     public static <K, V> ConcurrentHashMap<K, V> load(Path path, Class<K> keyClass, Class<V> valueClass) {
         if (!Files.exists(path)) {
             return new ConcurrentHashMap<>();
@@ -32,10 +22,10 @@ public final class ConcurrentMapStorage {
             if (content.isBlank()) {
                 return new ConcurrentHashMap<>();
             }
-            JavaType mapType = TypeFactory.defaultInstance()
+            var mapType = com.fasterxml.jackson.databind.type.TypeFactory.defaultInstance()
                     .constructMapType(ConcurrentHashMap.class, keyClass, valueClass);
             return JsonCodec.deserialize(content, mapType);
-        } catch (IOException e) {
+        } catch (java.io.IOException e) {
             throw new RuntimeException("Failed to read JSON from file: " + path, e);
         }
     }

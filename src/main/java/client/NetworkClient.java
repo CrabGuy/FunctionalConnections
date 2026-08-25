@@ -17,12 +17,13 @@ public final class NetworkClient implements AutoCloseable {
         this.socketChannel = SocketChannel.open(new InetSocketAddress(host, port));
     }
 
-    public Response sendRequest(Request request) throws IOException {
+    public <T> Response<T> sendRequest(Request request, Class<T> responseType) throws IOException {
         String payload = JsonCodec.serialize(request) + "\n";
         socketChannel.write(ByteBuffer.wrap(payload.getBytes(StandardCharsets.UTF_8)));
 
         StringBuilder response = new StringBuilder();
         ByteBuffer buffer = ByteBuffer.allocate(1024);
+
         while (true) {
             int bytesRead = socketChannel.read(buffer);
             if (bytesRead == -1) {
@@ -31,13 +32,15 @@ public final class NetworkClient implements AutoCloseable {
             buffer.flip();
             response.append(StandardCharsets.UTF_8.decode(buffer));
             buffer.clear();
+
             int newlineIndex = response.indexOf("\n");
             if (newlineIndex != -1) {
                 response.setLength(newlineIndex);
                 break;
             }
         }
-        return JsonCodec.deserialize(response.toString().trim(), Response.class);
+
+        return JsonCodec.deserializeResponse(response.toString().trim(), responseType);
     }
 
     @Override

@@ -1,5 +1,4 @@
 package server;
-
 import com.fasterxml.jackson.databind.type.TypeFactory;
 import shared.JsonCodec;
 import java.nio.file.Files;
@@ -14,11 +13,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-
 public final class GameManager {
     public record WordGroup(String category, Set<String> words) {}
     public record Guess(Set<String> words, boolean isCorrect) {}
     public record PlayerProgress(List<Guess> history) {
+        private static final long POINTS_PER_CORRECT_GUESS = 6;
+        private static final long POINTS_PER_MISTAKE = 4;
         public PlayerProgress {
             history = List.copyOf(history);
         }
@@ -27,6 +27,9 @@ public final class GameManager {
         }
         public long mistakesMade() {
             return history.stream().filter(guess -> !guess.isCorrect()).count();
+        }
+        public long score() {
+            return POINTS_PER_CORRECT_GUESS * solvedCount() - POINTS_PER_MISTAKE * mistakesMade();
         }
         public boolean containsGuess(Set<String> words) {
             return history.stream().anyMatch(guess -> guess.words().equals(words));
@@ -70,20 +73,16 @@ public final class GameManager {
             return Status.IN_PROGRESS;
         }
     }
-
     public enum Status { IN_PROGRESS, WON, LOST }
-
     private final ConcurrentHashMap<Long, Game> games = new ConcurrentHashMap<>();
     private final List<List<WordGroup>> puzzleBank;
     private final Duration gameDuration;
     private final int maxMistakesAllowed;
-
     public GameManager(String filePath, Duration gameDuration, int maxMistakesAllowed) {
         this.puzzleBank = loadPuzzleBank(filePath);
         this.gameDuration = gameDuration;
         this.maxMistakesAllowed = maxMistakesAllowed;
     }
-
     private static List<List<WordGroup>> loadPuzzleBank(String filePath) {
         try {
             String jsonContent = Files.readString(Path.of(filePath));
@@ -99,14 +98,11 @@ public final class GameManager {
             throw new RuntimeException("Failed to load puzzle bank from " + filePath, e);
         }
     }
-
     private record GameDataDto(int gameId, List<WordGroupDto> groups) {}
     private record WordGroupDto(String theme, List<String> words) {}
-
     public long getCurrentGameId() {
         return Instant.now().toEpochMilli() / gameDuration.toMillis();
     }
-
     public Game getOrCreateGame(long gameId) {
         return games.computeIfAbsent(gameId, id -> {
             int puzzleIndex = (int) Math.floorMod(id, puzzleBank.size());
@@ -114,17 +110,14 @@ public final class GameManager {
             return new Game(id, groups, gameDuration, maxMistakesAllowed, Map.of());
         });
     }
-
     public Game getActiveGame() {
         return getOrCreateGame(getCurrentGameId());
     }
-
     public Optional<Game> resolveGame(Long requestedId) {
-        return requestedId == null || requestedId == getCurrentGameId() 
-                ? Optional.of(getActiveGame()) 
+        return requestedId == null || requestedId == getCurrentGameId()
+                ? Optional.of(getActiveGame())
                 : Optional.ofNullable(games.get(requestedId));
     }
-
     public Optional<Game> processGuess(long gameId, String player, Set<String> guess) {
         return Optional.ofNullable(
                 games.computeIfPresent(gameId, (id, game) -> {
@@ -140,11 +133,9 @@ public final class GameManager {
                 })
         );
     }
-
     public void save(Path path) {
         ConcurrentMapStorage.save(path, games);
     }
-
     public void load(Path path) {
         ConcurrentHashMap<Long, Game> loaded = ConcurrentMapStorage.load(path, Long.class, Game.class);
         games.clear();

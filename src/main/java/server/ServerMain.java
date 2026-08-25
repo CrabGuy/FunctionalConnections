@@ -1,7 +1,5 @@
 package server;
 
-import shared.JsonCodec;
-import shared.Request;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -32,7 +30,6 @@ public class ServerMain {
         this.dispatcher = new RequestDispatcher(gameManager, userManager);
         this.saveIntervalSeconds = Long.getLong("server.save.interval.seconds", DEFAULT_SAVE_INTERVAL_SECONDS);
         
-        JsonCodec.registerRequestSubtypes(Request.class);
         loadPersistedData();
         savePersistedData();
     }
