@@ -29,7 +29,7 @@ public final class DataContracts {
         long inProgressPlayers,
         long finishedPlayers,
         long wins,
-        double avgScore
+        Double avgScore
     ) {}
 
     public record PlayerStatsDto(

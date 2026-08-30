@@ -9,13 +9,15 @@ import java.net.DatagramSocket;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Scanner;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ClientMain {
     private static final int UDP_PORT = 9876;
+
     private final NetworkClient networkClient;
     private String currentUser = null;
     private Long currentGameId = null;
-    private volatile boolean needsRefresh = false;
+    private final AtomicBoolean needsRefresh = new AtomicBoolean(false);
 
     public ClientMain(String host, int port) throws Exception {
         this.networkClient = new NetworkClient(host, port);
@@ -42,7 +44,7 @@ public final class ClientMain {
                     if (message.startsWith("GAME_UPDATE:") && currentUser != null) {
                         Long newGameId = Long.parseLong(message.replace("GAME_UPDATE:", ""));
                         if (currentGameId == null || !currentGameId.equals(newGameId)) {
-                            needsRefresh = true;
+                            needsRefresh.set(true);
                         }
                     }
                 }
@@ -72,12 +74,15 @@ public final class ClientMain {
 
     private void runGameLoop(Scanner scanner) {
         while (currentUser != null) {
-            needsRefresh = false;
             Response<DataContracts.GameStateDto> info = requestSilent(new Request.RequestGameInfo(null), DataContracts.GameStateDto.class);
             if (info.success() && info.result() != null) currentGameId = info.result().gameId();
 
             String option = UiHandler.showGameMenu(scanner, currentUser, info.result());
-            if (needsRefresh) continue;
+
+            // Check if a refresh was requested during UI interaction
+            if (needsRefresh.getAndSet(false)) {
+                continue; // go back to top and fetch fresh game info
+            }
 
             switch (option) {
                 case "1" -> interactivePlayLoop(scanner);
@@ -96,7 +101,8 @@ public final class ClientMain {
     private void interactivePlayLoop(Scanner scanner) {
         String feedback = "";
         while (currentUser != null) {
-            if (needsRefresh) {
+            // Check for refresh before doing anything
+            if (needsRefresh.getAndSet(false)) {
                 UiHandler.clearScreen();
                 System.out.println("\n[!] A new game has started! Returning to main menu...");
                 UiHandler.pauseForUser(scanner);
@@ -109,24 +115,30 @@ public final class ClientMain {
                 System.out.println("✗ Could not load board: " + errorText(info));
                 break;
             }
-
             DataContracts.GameStateDto board = info.result();
             currentGameId = board.gameId();
-            UiHandler.renderGameBoard(board);
 
+            UiHandler.renderGameBoard(board);
             if (!feedback.isBlank()) System.out.println("\n" + feedback);
 
             boolean isGameOver = "WON".equalsIgnoreCase(board.status()) || "LOST".equalsIgnoreCase(board.status());
             if (isGameOver) {
-                System.out.println("WON".equalsIgnoreCase(board.status()) 
-                    ? "\n🎉 CONGRATULATIONS! You solved all groups and WON this game!"
-                    : "\n❌ GAME OVER! You ran out of attempts or time.");
+                System.out.println("WON".equalsIgnoreCase(board.status())
+                        ? "\n🎉 CONGRATULATIONS! You solved all groups and WON this game!"
+                        : "\n❌ GAME OVER! You ran out of attempts or time.");
                 UiHandler.pauseForUser(scanner);
                 break;
             }
 
             String input = UiHandler.promptProposal(scanner);
-            if (needsRefresh) continue;
+            // Check refresh again after input
+            if (needsRefresh.getAndSet(false)) {
+                UiHandler.clearScreen();
+                System.out.println("\n[!] A new game has started! Returning to main menu...");
+                UiHandler.pauseForUser(scanner);
+                break;
+            }
+
             if ("back".equalsIgnoreCase(input) || "exit".equalsIgnoreCase(input)) break;
 
             List<String> words = UiHandler.parseProposalInput(input, board.remainingWords());
@@ -138,8 +150,12 @@ public final class ClientMain {
             Response<DataContracts.ProposalOutcomeDto> outcome = requestSilent(new Request.SubmitProposal(words), DataContracts.ProposalOutcomeDto.class);
             if (outcome.success() && outcome.result() != null) {
                 feedback = outcome.result().lastGuessCorrect() ? "✓ Correct group found!" : "✗ Incorrect group suggestion.";
+
+                // Check if only one group remains and the user just solved one
                 if (board.solvedGroups().size() == 2 && outcome.result().lastGuessCorrect()) {
-                    autoSolveLastGroup();
+                    if (UiHandler.confirmAutoSolve(scanner)) {
+                        autoSolveLastGroup();
+                    }
                 }
             } else {
                 feedback = "✗ Proposal Rejected: " + errorText(outcome);
@@ -211,10 +227,9 @@ public final class ClientMain {
 
     private boolean handleUpdateCredentials(Scanner scanner, String currentUsername) {
         System.out.println("\n--- Update Credentials ---");
-        String targetUsername = currentUsername == null || currentUsername.isBlank() 
-            ? UiHandler.promptText(scanner, "Username to update: ") 
-            : currentUsername;
-
+        String targetUsername = currentUsername == null || currentUsername.isBlank()
+                ? UiHandler.promptText(scanner, "Username to update: ")
+                : currentUsername;
         String oldPassword = UiHandler.promptText(scanner, "Current Password: ");
         String newUsernameInput = UiHandler.promptText(scanner, "New Username (press Enter to keep current): ");
         String newUsername = newUsernameInput.isBlank() ? targetUsername : newUsernameInput;

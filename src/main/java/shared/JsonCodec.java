@@ -1,16 +1,15 @@
 package shared;
-
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
+import com.fasterxml.jackson.databind.SerializationFeature;
 public final class JsonCodec {
     private static final ObjectMapper MAPPER = new ObjectMapper();
-
     static {
         MAPPER.findAndRegisterModules();
+        MAPPER.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         MAPPER.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
         MAPPER.setVisibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.NONE);
         MAPPER.setVisibility(PropertyAccessor.IS_GETTER, JsonAutoDetect.Visibility.NONE);
@@ -18,9 +17,7 @@ public final class JsonCodec {
         MAPPER.setVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY);
         MAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
-
     private JsonCodec() {}
-
     public static <T> String serialize(T object) {
         try {
             return MAPPER.writeValueAsString(object);
@@ -28,7 +25,6 @@ public final class JsonCodec {
             throw new RuntimeException("Serialization error: " + e.getMessage(), e);
         }
     }
-
     public static <T> T deserialize(String json, Class<T> clazz) {
         try {
             return MAPPER.readValue(json, clazz);
@@ -36,7 +32,6 @@ public final class JsonCodec {
             throw new RuntimeException("Deserialization error: " + e.getMessage(), e);
         }
     }
-
     public static <T> T deserialize(String json, JavaType type) {
         try {
             return MAPPER.readValue(json, type);
@@ -44,7 +39,6 @@ public final class JsonCodec {
             throw new RuntimeException("Deserialization error: " + e.getMessage(), e);
         }
     }
-
     public static <T> Response<T> deserializeResponse(String json, Class<T> resultClass) {
         try {
             if (resultClass == Void.class || resultClass == null) {
@@ -57,7 +51,6 @@ public final class JsonCodec {
             throw new RuntimeException("Response deserialization error: " + e.getMessage(), e);
         }
     }
-
     public static String serializeError(String errorMessage) {
         return serialize(Response.error(errorMessage));
     }

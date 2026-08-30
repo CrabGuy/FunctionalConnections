@@ -1,6 +1,7 @@
 package client;
 
 import shared.DataContracts;
+
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -58,6 +59,11 @@ public final class UiHandler {
         return promptText(scanner, "\nEnter 4 word numbers or words (or 'back'): ");
     }
 
+    public static boolean confirmAutoSolve(Scanner scanner) {
+        String answer = promptText(scanner, "Only one group remains. Submit it automatically? (y/n): ");
+        return answer.equalsIgnoreCase("y") || answer.equalsIgnoreCase("yes");
+    }
+
     public static List<String> parseProposalInput(String input, List<String> availableWords) {
         List<String> tokens = Arrays.stream(input.split("[,\\s]+")).filter(t -> !t.isBlank()).map(String::trim).toList();
         if (tokens.stream().allMatch(t -> t.matches("\\d+"))) {
@@ -72,14 +78,21 @@ public final class UiHandler {
     public static void renderGameBoard(DataContracts.GameStateDto board) {
         System.out.println("\n           CONNECTIONS BOARD");
         System.out.println("==========================================");
-        
+
+        // Display score and remaining time
+        System.out.printf("Score: %d%n", board.score());
+        long remainingMs = board.remainingTimeMs() != null ? board.remainingTimeMs() : 0;
+        long seconds = remainingMs / 1000;
+        System.out.printf("Time left: %02d:%02d%n", seconds / 60, seconds % 60);
+        System.out.println("------------------------------------------");
+
         if (board.solvedGroups() != null && !board.solvedGroups().isEmpty()) {
             System.out.println("Solved Groups:");
             IntStream.range(0, board.solvedGroups().size())
                     .forEach(i -> System.out.println("  Group " + (i + 1) + ": " + String.join(", ", board.solvedGroups().get(i))));
             System.out.println("------------------------------------------");
         }
-        
+
         if (board.remainingWords() != null && !board.remainingWords().isEmpty()) {
             System.out.println("Remaining Words:");
             IntStream.range(0, board.remainingWords().size())
@@ -121,7 +134,6 @@ public final class UiHandler {
         System.out.printf("%-20s: %d\n", "Current Streak", result.currentStreak());
         System.out.printf("%-20s: %d\n", "Max Streak", result.maxStreak());
         System.out.printf("%-20s: %d\n", "Perfect Puzzles", result.perfectPuzzles());
-        
         System.out.println("Mistake Histogram:");
         if ("NONE".equals(result.mistakeHistogram())) {
             System.out.println("  No completed games yet.");
@@ -145,7 +157,7 @@ public final class UiHandler {
         System.out.printf("%-20s: %d\n", "In Progress", result.inProgressPlayers());
         System.out.printf("%-20s: %d\n", "Finished Players", result.finishedPlayers());
         System.out.printf("%-20s: %d\n", "Wins", result.wins());
-        if (result.remainingTimeMs() == 0) {
+        if (result.avgScore() != null) {
             System.out.printf("%-20s: %.1f\n", "Avg Score", result.avgScore());
         }
     }

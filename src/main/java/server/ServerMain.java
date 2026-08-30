@@ -14,10 +14,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ServerMain {
+
     private static final int UDP_PORT = 9876;
     private static final Path STORAGE_DIR = Path.of("storage").toAbsolutePath().normalize();
     private static final long DEFAULT_SAVE_INTERVAL_SECONDS = 30;
-    
+
     private final UserManager userManager;
     private final GameManager gameManager;
     private final RequestDispatcher dispatcher;
@@ -29,7 +30,6 @@ public class ServerMain {
         this.gameManager = new GameManager("Connections_Data.json", Duration.ofMinutes(10), 4);
         this.dispatcher = new RequestDispatcher(gameManager, userManager);
         this.saveIntervalSeconds = Long.getLong("server.save.interval.seconds", DEFAULT_SAVE_INTERVAL_SECONDS);
-        
         loadPersistedData();
         savePersistedData();
     }
@@ -69,7 +69,8 @@ public class ServerMain {
         try {
             Files.createDirectories(STORAGE_DIR);
             userManager.load(STORAGE_DIR.resolve("users.json"));
-            gameManager.load(STORAGE_DIR.resolve("games.json"));
+            gameManager.loadGames(STORAGE_DIR.resolve("games.json"));
+            gameManager.loadPlayerProgress(STORAGE_DIR.resolve("player_progress.json"));
             System.out.println("Loaded persisted data from " + STORAGE_DIR);
         } catch (Exception e) {
             System.err.println("Failed to load persisted data: " + e.getMessage());
@@ -80,7 +81,8 @@ public class ServerMain {
         try {
             Files.createDirectories(STORAGE_DIR);
             userManager.save(STORAGE_DIR.resolve("users.json"));
-            gameManager.save(STORAGE_DIR.resolve("games.json"));
+            gameManager.saveGames(STORAGE_DIR.resolve("games.json"));
+            gameManager.savePlayerProgress(STORAGE_DIR.resolve("player_progress.json"));
         } catch (Exception e) {
             System.err.println("Failed to save persisted data: " + e.getMessage());
         }

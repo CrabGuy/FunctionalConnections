@@ -24,8 +24,9 @@ public class UserManager {
         return user != null && user.passwordHash().equals(passwordHash);
     }
 
-    public UpdateResult updateCredentials(String username, String oldPasswordHash,
-                                          String newUsername, String newPasswordHash) {
+    // Synchronized to ensure atomicity of the multi-step update.
+    public synchronized UpdateResult updateCredentials(String username, String oldPasswordHash,
+                                                       String newUsername, String newPasswordHash) {
         User user = users.get(username);
         if (user == null || !user.passwordHash().equals(oldPasswordHash)) {
             return UpdateResult.INVALID_CREDENTIALS;
