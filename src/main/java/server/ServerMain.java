@@ -1,5 +1,14 @@
 package server;
 
+import config.ServerConfig;
+import server.game.*;
+import server.service.*;
+import server.storage.MapStorage;
+import server.storage.SnapshotSaver;
+
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.type.TypeFactory;
+
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -7,40 +16,67 @@ import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ServerMain {
-
-    private static final int UDP_PORT = 9876;
-    private static final Path STORAGE_DIR = Path.of("storage").toAbsolutePath().normalize();
-    private static final long DEFAULT_SAVE_INTERVAL_SECONDS = 30;
-
+    private final ServerConfig config;
     private final UserManager userManager;
-    private final GameManager gameManager;
+    private final GameRepository gameRepository;
+    private final AuthService authService;
+    private final GameService gameService;
+    private final StatsService statsService;
     private final RequestDispatcher dispatcher;
+    private final SnapshotSaver snapshotSaver;
     private final AtomicLong lastNotifiedGameId = new AtomicLong(-1);
-    private final long saveIntervalSeconds;
 
-    public ServerMain() {
+    public ServerMain() throws Exception {
+        this.config = ServerConfig.load();
         this.userManager = new UserManager();
-        this.gameManager = new GameManager("Connections_Data.json", Duration.ofMinutes(10), 4);
-        this.dispatcher = new RequestDispatcher(gameManager, userManager);
-        this.saveIntervalSeconds = Long.getLong("server.save.interval.seconds", DEFAULT_SAVE_INTERVAL_SECONDS);
+        PuzzleBank puzzleBank = new PuzzleBank(config.puzzleFilePath());
+        SystemGameClock clock = new SystemGameClock(config.gameDuration());
+        this.gameRepository = new GameRepository(puzzleBank, clock, config.maxInMemoryGames(),
+                config.storageDir(), config.maxMistakes(), config.gameDuration());
         loadPersistedData();
-        savePersistedData();
+        this.authService = new AuthService(userManager, gameRepository, clock);
+        this.gameService = new GameService(gameRepository, clock);
+        this.statsService = new StatsService(userManager);
+        this.dispatcher = new RequestDispatcher(authService, gameService, statsService);
+        this.snapshotSaver = new SnapshotSaver(userManager, gameRepository, gameRepository.progressStore(),
+                config.storageDir(), config.saveIntervalSeconds());
+        snapshotSaver.saveAll();
     }
 
-    public void start(int port) {
+    private void loadPersistedData() {
+        try {
+            Files.createDirectories(config.storageDir());
+            Path usersPath = config.storageDir().resolve("users.json");
+            Path progressPath = config.storageDir().resolve("player_progress.json");
+
+            if (Files.exists(usersPath)) {
+                Map<String, User> usersSnapshot = MapStorage.load(usersPath, String.class, User.class);
+                userManager.loadSnapshot(usersSnapshot);
+            }
+            if (Files.exists(progressPath)) {
+                TypeFactory typeFactory = TypeFactory.defaultInstance();
+                JavaType innerType = typeFactory.constructMapType(Map.class, String.class, PlayerProgress.class);
+                JavaType outerType = typeFactory.constructMapType(Map.class,
+                        typeFactory.constructType(Long.class), innerType);
+                Map<Long, Map<String, PlayerProgress>> progressSnapshot = MapStorage.load(progressPath, outerType);
+                gameRepository.progressStore().loadSnapshot(progressSnapshot);
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to load persisted data: " + e.getMessage());
+        }
+    }
+
+    public void start() {
         startUdpNotifier();
-        startPeriodicSave();
         Thread.ofPlatform().start(() -> {
-            try (var server = new ServerSocket(port);
+            try (var server = new ServerSocket(config.tcpPort());
                  var executor = Executors.newFixedThreadPool(10)) {
-                System.out.println("Server listening on port " + port);
+                System.out.println("Server listening on port " + config.tcpPort());
                 while (!Thread.currentThread().isInterrupted()) {
                     var socket = server.accept();
                     executor.submit(new ClientSessionHandler(socket, dispatcher));
@@ -51,61 +87,20 @@ public class ServerMain {
         });
     }
 
-    private void startPeriodicSave() {
-        ScheduledExecutorService saveExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "storage-save");
-            thread.setDaemon(true);
-            return thread;
-        });
-        saveExecutor.scheduleWithFixedDelay(
-                this::savePersistedData,
-                saveIntervalSeconds,
-                saveIntervalSeconds,
-                TimeUnit.SECONDS
-        );
-    }
-
-    private void loadPersistedData() {
-        try {
-            Files.createDirectories(STORAGE_DIR);
-            userManager.load(STORAGE_DIR.resolve("users.json"));
-            gameManager.loadGames(STORAGE_DIR.resolve("games.json"));
-            gameManager.loadPlayerProgress(STORAGE_DIR.resolve("player_progress.json"));
-            System.out.println("Loaded persisted data from " + STORAGE_DIR);
-        } catch (Exception e) {
-            System.err.println("Failed to load persisted data: " + e.getMessage());
-        }
-    }
-
-    private void savePersistedData() {
-        try {
-            Files.createDirectories(STORAGE_DIR);
-            userManager.save(STORAGE_DIR.resolve("users.json"));
-            gameManager.saveGames(STORAGE_DIR.resolve("games.json"));
-            gameManager.savePlayerProgress(STORAGE_DIR.resolve("player_progress.json"));
-        } catch (Exception e) {
-            System.err.println("Failed to save persisted data: " + e.getMessage());
-        }
-    }
-
     private void startUdpNotifier() {
         Thread.ofPlatform().daemon().start(() -> {
             try (DatagramSocket socket = new DatagramSocket()) {
                 socket.setBroadcast(true);
                 while (!Thread.currentThread().isInterrupted()) {
-                    long currentGameId = gameManager.getCurrentGameId();
-                    var activeGame = gameManager.getActiveGame();
-                    if (activeGame.remainingTime().isZero()
-                            && lastNotifiedGameId.get() != currentGameId + 1) {
+                    long currentGameId = gameRepository.getActiveGame().id();
+                    var activeGame = gameRepository.getActiveGame();
+                    var now = java.time.Instant.now();
+                    if (activeGame.remainingTime(now).isZero() && lastNotifiedGameId.get() != currentGameId + 1) {
                         long nextGameId = currentGameId + 1;
                         lastNotifiedGameId.set(nextGameId);
                         byte[] data = ("GAME_UPDATE:" + nextGameId).getBytes(StandardCharsets.UTF_8);
                         DatagramPacket packet = new DatagramPacket(
-                                data,
-                                data.length,
-                                InetAddress.getByName("255.255.255.255"),
-                                UDP_PORT
-                        );
+                                data, data.length, InetAddress.getByName("255.255.255.255"), config.udpPort());
                         socket.send(packet);
                     }
                     Thread.sleep(1000);
@@ -116,9 +111,9 @@ public class ServerMain {
         });
     }
 
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) throws Exception {
         ServerMain server = new ServerMain();
-        server.start(8080);
+        server.start();
         Thread.currentThread().join();
     }
 }

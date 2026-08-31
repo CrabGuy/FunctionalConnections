@@ -6,22 +6,23 @@ import java.util.Set;
 public final class DataContracts {
     private DataContracts() {}
 
+    public record SolvedGroupDto(String category, Set<String> words) {}
+    public record GameGroupDto(String category, Set<String> words) {}
+
     public record GameStateDto(
         Long gameId,
         String status,
         Long remainingTimeMs,
         long score,
         long mistakes,
-        List<Set<String>> solvedGroups,
+        List<SolvedGroupDto> solvedGroups,
         List<String> remainingWords,
-        List<String> allGroups
+        List<GameGroupDto> allGroups
     ) {}
-
     public record ProposalOutcomeDto(
         String status,
         boolean lastGuessCorrect
     ) {}
-
     public record GameStatsDto(
         Long gameId,
         Long remainingTimeMs,
@@ -31,7 +32,6 @@ public final class DataContracts {
         long wins,
         Double avgScore
     ) {}
-
     public record PlayerStatsDto(
         int puzzlesCompleted,
         double winRate,
@@ -41,11 +41,9 @@ public final class DataContracts {
         int perfectPuzzles,
         String mistakeHistogram
     ) {}
-
     public record LeaderboardDto(
         Integer position,
         List<LeaderboardEntry> entries
     ) {}
-
     public record LeaderboardEntry(String username, int wins) {}
 }

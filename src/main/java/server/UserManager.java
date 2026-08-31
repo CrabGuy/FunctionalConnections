@@ -1,6 +1,5 @@
 package server;
 
-import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,19 +23,16 @@ public class UserManager {
         return user != null && user.passwordHash().equals(passwordHash);
     }
 
-    // Synchronized to ensure atomicity of the multi-step update.
     public synchronized UpdateResult updateCredentials(String username, String oldPasswordHash,
                                                        String newUsername, String newPasswordHash) {
         User user = users.get(username);
         if (user == null || !user.passwordHash().equals(oldPasswordHash)) {
             return UpdateResult.INVALID_CREDENTIALS;
         }
-
         String targetUsername = newUsername == null || newUsername.isBlank() ? username : newUsername;
         if (!targetUsername.equals(username) && users.containsKey(targetUsername)) {
             return UpdateResult.TARGET_USERNAME_TAKEN;
         }
-
         User updated = user;
         if (!targetUsername.equals(username)) {
             updated = updated.withUsername(targetUsername);
@@ -75,13 +71,12 @@ public class UserManager {
         return users.containsKey(username);
     }
 
-    public void save(Path path) {
-        ConcurrentMapStorage.save(path, users);
+    public Map<String, User> snapshot() {
+        return Map.copyOf(users);
     }
 
-    public void load(Path path) {
-        ConcurrentHashMap<String, User> loaded = ConcurrentMapStorage.load(path, String.class, User.class);
+    public void loadSnapshot(Map<String, User> snapshot) {
         users.clear();
-        users.putAll(loaded);
+        users.putAll(snapshot);
     }
 }
