@@ -13,6 +13,7 @@ Cleverness is discouraged. Code should read like well-written prose.
   * Push side effects (file I/O, database access, network calls, randomness, system time) to the outer edges of the application.
 * **Immutability by Default:** Prefer persistent/immutable data structures. Functions should transform data into new structures rather than mutating inputs.
 * **Explicit Over Implicit:** Prefer explicit arguments, explicit return types, and flat control flows over magic decorators, hidden state, or complex middleware loops.
+* **Keep a memory focus:** Prefer simplicty of data representation but beware of memory, use lazy iterators if needed/possible
 
 ---
 
@@ -25,11 +26,13 @@ Cleverness is discouraged. Code should read like well-written prose.
 ### Function Design
 * **Single Responsibility:** A function does one thing and does it predictably.
 * **Signatures:** Keep parameter lists small (preferably 1–3 parameters). Group related parameters into a single typed data structure if growing beyond 3.
-* **Errors:** Treat errors as domain values where possible (e.g., `Result<T, E>` patterns or explicit return tuples) rather than relying on deep, uncaught exception chains for expected failure paths.
 
 ### Dependency Handling
 * Pass dependencies explicitly as function arguments (Dependency Injection).
 * Do not rely on global singletons, shared mutable state, or implicit environment contexts within core domain functions.
+
+### Classes shape
+* Prefer static methods inside classes to perform the operations, avoid fields whenever possible
 
 ---
 

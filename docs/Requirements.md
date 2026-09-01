@@ -105,7 +105,7 @@ Connections is a word grouping game where players must find associations between
 - Receives and validates player proposals (4 words)
 - Checks if words form a correct and unclaimed group
 - Updates game state accordingly (errors, score)
-- Malformed proposals (already grouped words, invalid words) count as errors but don't affect game state
+- Malformed proposals (already grouped words, invalid words) count as errors but don't affect game state, which means DO NOT count as mistakes, it just means they are like invalid/malformed proposals
 
 **Game Termination:**
 - Individual player: wins or loses
