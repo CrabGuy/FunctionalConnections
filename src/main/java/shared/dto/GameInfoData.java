@@ -12,7 +12,7 @@ import java.util.stream.Collectors;
  *
  * @param gameId              the ID of the game.
  * @param completed           true if the game period has ended globally.
- * @param remainingTimeSeconds number of seconds remaining; valid only if not completed.
+ * @param expiresAt           Unix epoch timestamp (seconds) when the game ends; valid even if completed.
  * @param words               the full list of 16 words for this game.
  * @param correctGuesses      list of word sets that the player correctly guessed.
  * @param wrongGuesses        list of word sets that the player incorrectly guessed.
@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 public record GameInfoData(
         long gameId,
         boolean completed,
-        int remainingTimeSeconds,
+        long expiresAt,
         List<String> words,
         List<Set<String>> correctGuesses,
         List<Set<String>> wrongGuesses,

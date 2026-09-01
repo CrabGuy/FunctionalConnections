@@ -1,7 +1,6 @@
 package server.dto;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Stores a player's activity in a specific game.
@@ -14,8 +13,6 @@ import java.util.stream.Collectors;
  */
 public record PlayerGame(String username, long gameId, List<Proposal> proposals) {
     public PlayerGame {
-        proposals = proposals.stream()
-                .map(Proposal::new) // defensive copy
-                .collect(Collectors.toUnmodifiableList());
+        proposals = List.copyOf(proposals);
     }
 }

@@ -6,7 +6,7 @@ package shared.dto;
  *
  * @param gameId             the ID of the game.
  * @param completed          true if the game period has ended.
- * @param remainingTimeSeconds number of seconds remaining; valid only if not completed.
+ * @param expiresAt          Unix epoch timestamp (seconds) when the game ends; valid even if completed.
  * @param totalParticipants  total number of players who participated (at least one proposal).
  * @param activePlayers      number of players currently active (not finished).
  * @param completedPlayers   number of players who have finished (won or lost).
@@ -16,7 +16,7 @@ package shared.dto;
 public record GameStatsData(
         long gameId,
         boolean completed,
-        int remainingTimeSeconds,
+        long expiresAt,
         int totalParticipants,
         int activePlayers,
         int completedPlayers,
