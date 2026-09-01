@@ -1,15 +1,12 @@
 package server.service;
 
 import server.game.*;
-import server.game.GameSession.WordGroup;
 import shared.DataContracts;
 import shared.ErrorCode;
 import shared.Request;
 import shared.Response;
-
 import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public final class GameService {
     private final GameRepository gameRepository;
@@ -20,7 +17,14 @@ public final class GameService {
         this.clock = clock;
     }
 
+    public void ensureAutoParticipation(String username) {
+        if (username != null && !username.isBlank()) {
+            gameRepository.ensureParticipation(username, clock.currentGameId());
+        }
+    }
+
     public Response<DataContracts.GameStateDto> joinGame(String username) {
+        ensureAutoParticipation(username);
         GameSession game = gameRepository.getActiveGame();
         return Response.success(buildGameStateDto(gameRepository, game, username, clock));
     }
@@ -33,35 +37,18 @@ public final class GameService {
                 .filter(w -> !w.isBlank())
                 .map(String::toUpperCase)
                 .toList();
-        if (normalized.size() != 4 || normalized.stream().distinct().count() != 4) {
-            return Response.error(ErrorCode.MALFORMED_PROPOSAL);
-        }
+        if (normalized.size() != 4) return Response.error(ErrorCode.PROPOSAL_WRONG_SIZE);
+        if (normalized.stream().distinct().count() != 4) return Response.error(ErrorCode.PROPOSAL_DUPLICATE_WORDS);
         GameSession game = gameRepository.getActiveGame();
-        Instant now = Instant.now();
-        var progressOpt = gameRepository.getProgress(game.id(), currentUser);
-        var status = game.playerStatus(progressOpt.orElse(new PlayerProgress(List.of())), now);
-        if (status != GameSession.Status.IN_PROGRESS) {
-            return Response.error(ErrorCode.MALFORMED_PROPOSAL_OR_GAME_OVER);
-        }
-        if (!game.allWords().containsAll(normalized)) {
-            return Response.error(ErrorCode.INVALID_WORDS_NOT_IN_PUZZLE);
-        }
-        if (progressOpt.isPresent() && normalized.stream().anyMatch(progressOpt.get().history().stream()
-                .filter(PlayerProgress.Guess::isCorrect)
-                .flatMap(g -> g.words().stream())
-                .collect(Collectors.toSet())::contains)) {
-            return Response.error(ErrorCode.WORDS_ALREADY_SOLVED);
-        }
+        if (!game.allWords().containsAll(normalized)) return Response.error(ErrorCode.PROPOSAL_NOT_IN_PUZZLE);
         Set<String> guess = new HashSet<>(normalized);
-        if (progressOpt.isPresent() && progressOpt.get().containsGuess(guess)) {
-            return Response.error(ErrorCode.DUPLICATE_PROPOSAL);
+        GameRepository.SubmitGuessResult result = gameRepository.submitGuess(game.id(), currentUser, guess);
+        if (result.error() != null) {
+            return Response.error(result.error());
         }
-        Optional<PlayerProgress> newProgress = gameRepository.submitGuess(game.id(), currentUser, guess);
-        if (newProgress.isEmpty()) {
-            return Response.error(ErrorCode.MALFORMED_PROPOSAL_OR_GAME_OVER);
-        }
-        boolean lastCorrect = newProgress.get().history().getLast().isCorrect();
-        GameSession.Status newStatus = game.playerStatus(newProgress.get(), now);
+        PlayerProgress newProgress = result.progress().get();
+        boolean lastCorrect = newProgress.history().getLast().isCorrect();
+        GameSession.Status newStatus = game.playerStatus(newProgress, clock.now());
         return Response.success(new DataContracts.ProposalOutcomeDto(newStatus.name(), lastCorrect));
     }
 
@@ -77,7 +64,7 @@ public final class GameService {
         Optional<GameSession> gameOpt = gameRepository.findGame(gameId);
         if (gameOpt.isEmpty()) return Response.error(ErrorCode.GAME_NOT_FOUND);
         GameSession game = gameOpt.get();
-        Instant now = Instant.now();
+        Instant now = clock.now();
         List<String> players = new ArrayList<>(gameRepository.participantsFor(game.id()));
         long total = players.size();
         long finished = 0;
@@ -102,43 +89,27 @@ public final class GameService {
     }
 
     public static DataContracts.GameStateDto buildGameStateDto(GameRepository repo, GameSession game, String username, GameClock clock) {
-        Instant now = Instant.now();
-        var progressOpt = repo.getProgress(game.id(), username);
-        var progress = progressOpt.orElse(new PlayerProgress(List.of()));
-        var status = game.playerStatus(progress, now);
-        List<DataContracts.SolvedGroupDto> solvedGroups = progress.history().stream()
-                .filter(PlayerProgress.Guess::isCorrect)
-                .map(g -> {
-                    String category = game.wordGroups().stream()
-                            .filter(wg -> wg.words().equals(g.words()))
-                            .map(WordGroup::category)
-                            .findFirst()
-                            .orElse("Unknown");
-                    return new DataContracts.SolvedGroupDto(category, g.words());
-                })
-                .toList();
-        if (status == GameSession.Status.IN_PROGRESS) {
-            Set<String> solvedWords = progress.history().stream()
-                    .filter(PlayerProgress.Guess::isCorrect)
-                    .flatMap(g -> g.words().stream())
-                    .collect(Collectors.toSet());
-            List<String> remaining = game.wordGroups().stream()
-                    .flatMap(g -> g.words().stream())
-                    .distinct()
-                    .filter(w -> !solvedWords.contains(w.toUpperCase()))
-                    .collect(Collectors.toList());
-            Collections.shuffle(remaining, new Random(game.id()));
-            return new DataContracts.GameStateDto(
-                    game.id(), status.name(), game.remainingTime(now).toMillis(), progress.score(),
-                    progress.mistakesMade(), solvedGroups, remaining, null
+        Instant now = clock.now();
+        PlayerProgress progress = repo.getProgress(game.id(), username).orElse(new PlayerProgress(List.of()));
+        PlayerGameState state = new PlayerGameState(game, progress, now);
+        if (state.getStatus() == GameSession.Status.IN_PROGRESS) {
+            return new DataContracts.OngoingGameStateDto(
+                    game.id(),
+                    state.getStatus().name(),
+                    state.getRemainingTimeMs(),
+                    state.getScore(),
+                    state.getMistakes(),
+                    state.getSolvedGroups(),
+                    state.getRemainingWords()
             );
         } else {
-            List<DataContracts.GameGroupDto> allGroups = game.wordGroups().stream()
-                    .map(g -> new DataContracts.GameGroupDto(g.category(), g.words()))
-                    .toList();
-            return new DataContracts.GameStateDto(
-                    game.id(), status.name(), 0L, progress.score(), progress.mistakesMade(),
-                    solvedGroups, null, allGroups
+            return new DataContracts.CompletedGameStateDto(
+                    game.id(),
+                    state.getStatus().name(),
+                    state.getScore(),
+                    state.getMistakes(),
+                    state.getSolvedGroups(),
+                    state.getAllGroups()
             );
         }
     }

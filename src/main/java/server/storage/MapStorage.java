@@ -17,9 +17,10 @@ public final class MapStorage {
 
     public static <K, V> void save(Path path, Map<K, V> snapshot) {
         try {
+            Map<K, V> snapshotCopy = Map.copyOf(snapshot);
             Files.createDirectories(path.getParent());
             Path tempFile = Files.createTempFile(path.getParent(), path.getFileName().toString(), ".tmp");
-            Files.writeString(tempFile, JsonCodec.serialize(snapshot));
+            Files.writeString(tempFile, JsonCodec.serialize(snapshotCopy));
             Files.move(tempFile, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             throw new RuntimeException("Failed to write JSON to file: " + path, e);
@@ -38,14 +39,10 @@ public final class MapStorage {
     }
 
     public static <K, V> Map<K, V> load(Path path, JavaType type) {
-        if (!Files.exists(path)) {
-            return new HashMap<>();
-        }
+        if (!Files.exists(path)) return new HashMap<>();
         try {
             String content = Files.readString(path);
-            if (content.isBlank()) {
-                return new HashMap<>();
-            }
+            if (content.isBlank()) return new HashMap<>();
             return JsonCodec.deserialize(content, type);
         } catch (IOException e) {
             throw new RuntimeException("Failed to read JSON from file: " + path, e);
@@ -61,9 +58,7 @@ public final class MapStorage {
     }
 
     public static <T> T load(Path path, Class<T> clazz) {
-        if (!Files.exists(path)) {
-            return null;
-        }
+        if (!Files.exists(path)) return null;
         try {
             String content = Files.readString(path);
             if (content.isBlank()) return null;

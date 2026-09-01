@@ -2,6 +2,7 @@ package server.game;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public record PlayerProgress(List<Guess> history) {
     public record Guess(Set<String> words, boolean isCorrect) {}
@@ -11,6 +12,13 @@ public record PlayerProgress(List<Guess> history) {
 
     public PlayerProgress {
         history = List.copyOf(history);
+    }
+
+    public Set<String> solvedWords() {
+        return history.stream()
+                .filter(Guess::isCorrect)
+                .flatMap(g -> g.words().stream())
+                .collect(Collectors.toSet());
     }
 
     public long solvedCount() {

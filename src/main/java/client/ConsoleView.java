@@ -10,6 +10,9 @@ import java.util.Scanner;
 public final class ConsoleView {
     public record Credentials(String username, String password) {}
 
+    private final GameBoardRenderer ongoingRenderer = new OngoingGameRenderer();
+    private final GameBoardRenderer completedRenderer = new CompletedGameRenderer();
+
     public void clearScreen() {
         System.out.print("\033[H\033[2J");
         System.out.flush();
@@ -75,36 +78,11 @@ public final class ConsoleView {
     }
 
     public void renderGameBoard(DataContracts.GameStateDto board) {
-        System.out.println("\n           CONNECTIONS BOARD");
-        System.out.println("==========================================");
-        System.out.printf("Score: %d%n", board.score());
-        long remainingMs = board.remainingTimeMs() != null ? board.remainingTimeMs() : 0;
-        long seconds = remainingMs / 1000;
-        System.out.printf("Time left: %02d:%02d%n", seconds / 60, seconds % 60);
-        System.out.println("------------------------------------------");
-        if (board.solvedGroups() != null && !board.solvedGroups().isEmpty()) {
-            System.out.println("Solved Groups:");
-            for (int i = 0; i < board.solvedGroups().size(); i++) {
-                DataContracts.SolvedGroupDto group = board.solvedGroups().get(i);
-                System.out.println("  Group " + (i + 1) + " (" + group.category() + "): " + String.join(", ", group.words()));
-            }
-            System.out.println("------------------------------------------");
+        if (board instanceof DataContracts.OngoingGameStateDto) {
+            ongoingRenderer.render(board);
+        } else if (board instanceof DataContracts.CompletedGameStateDto) {
+            completedRenderer.render(board);
         }
-        if (board.remainingWords() != null && !board.remainingWords().isEmpty()) {
-            System.out.println("Remaining Words:");
-            for (int i = 0; i < board.remainingWords().size(); i++) {
-                System.out.printf("%2d) %-15s%s", (i + 1), board.remainingWords().get(i), (i + 1) % 4 == 0 ? "\n" : "");
-            }
-            if (board.remainingWords().size() % 4 != 0) System.out.println();
-            System.out.println("------------------------------------------");
-        }
-        if (board.allGroups() != null && !board.allGroups().isEmpty()) {
-            System.out.println("Correct Groups:");
-            for (DataContracts.GameGroupDto group : board.allGroups()) {
-                System.out.println("  " + group.category() + ": " + String.join(", ", group.words()));
-            }
-        }
-        System.out.print("Mistakes made: " + board.mistakes());
     }
 
     public void printLeaderboard(DataContracts.LeaderboardDto result) {
@@ -133,13 +111,11 @@ public final class ConsoleView {
         System.out.printf("%-20s: %d\n", "Max Streak", result.maxStreak());
         System.out.printf("%-20s: %d\n", "Perfect Puzzles", result.perfectPuzzles());
         System.out.println("Mistake Histogram:");
-        if ("NONE".equals(result.mistakeHistogram())) {
+        if (result.mistakeHistogram() == null || result.mistakeHistogram().isEmpty()) {
             System.out.println("  No completed games yet.");
         } else {
-            Arrays.stream(result.mistakeHistogram().split(",")).forEach(entry -> {
-                String[] parts = entry.split(":");
-                if (parts.length >= 2) System.out.printf("  %s mistakes: %s game(s)\n", parts[0], parts[1]);
-            });
+            result.mistakeHistogram().forEach((mistakes, count) ->
+                    System.out.printf("  %d mistakes: %d game(s)\n", mistakes, count));
         }
     }
 

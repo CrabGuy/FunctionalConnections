@@ -1,8 +1,6 @@
 package server.service;
 
 import server.UserManager;
-import server.game.GameRepository;
-import server.game.GameClock;
 import shared.DataContracts;
 import shared.ErrorCode;
 import shared.Request;
@@ -10,13 +8,11 @@ import shared.Response;
 
 public final class AuthService {
     private final UserManager userManager;
-    private final GameRepository gameRepository;
-    private final GameClock clock;
+    private final GameService gameService;
 
-    public AuthService(UserManager userManager, GameRepository gameRepository, GameClock clock) {
+    public AuthService(UserManager userManager, GameService gameService) {
         this.userManager = userManager;
-        this.gameRepository = gameRepository;
-        this.clock = clock;
+        this.gameService = gameService;
     }
 
     public Response<Void> register(Request.Register request) {
@@ -35,12 +31,14 @@ public final class AuthService {
         if (!userManager.authenticate(request.username(), request.psw())) {
             return Response.error(ErrorCode.INVALID_USERNAME_OR_PASSWORD);
         }
-        var game = gameRepository.getActiveGame();
-        return Response.success(GameService.buildGameStateDto(gameRepository, game, request.username(), clock));
+        return gameService.joinGame(request.username());
     }
 
     public Response<Void> logout(String currentUser) {
-        return currentUser == null ? Response.error(ErrorCode.USER_NOT_LOGGED_IN) : Response.success(null);
+        if (currentUser == null) {
+            return Response.error(ErrorCode.USER_NOT_LOGGED_IN);
+        }
+        return Response.success(null);
     }
 
     public Response<Void> updateCredentials(Request.UpdateCredentials request, String currentUser) {

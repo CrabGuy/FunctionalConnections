@@ -42,7 +42,12 @@ public final class NetworkSession implements AutoCloseable {
 
     public Response<Void> updateCredentials(String oldUsername, String oldPassword,
                                             String newUsername, String newPassword) {
-        return send(new Request.UpdateCredentials(oldUsername, oldPassword, newUsername, newPassword), Void.class);
+        Response<Void> response = send(new Request.UpdateCredentials(oldUsername, oldPassword, newUsername, newPassword), Void.class);
+        if (response.success() && currentUser != null && currentUser.equals(oldUsername) &&
+                newUsername != null && !newUsername.isBlank() && !newUsername.equals(oldUsername)) {
+            currentUser = newUsername;
+        }
+        return response;
     }
 
     public Response<DataContracts.ProposalOutcomeDto> submitProposal(List<String> words) {

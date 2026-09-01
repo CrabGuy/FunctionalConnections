@@ -1,5 +1,6 @@
 package server.game;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -12,6 +13,17 @@ public final class PlayerProgressStore {
     public Optional<PlayerProgress> get(long gameId, String username) {
         var inner = store.get(gameId);
         return inner == null ? Optional.empty() : Optional.ofNullable(inner.get(username));
+    }
+
+    public Map<Long, PlayerProgress> allProgressFor(String username) {
+        Map<Long, PlayerProgress> result = new HashMap<>();
+        store.forEach((gameId, inner) -> {
+            PlayerProgress progress = inner.get(username);
+            if (progress != null) {
+                result.put(gameId, progress);
+            }
+        });
+        return result;
     }
 
     public Set<String> participantsFor(long gameId) {

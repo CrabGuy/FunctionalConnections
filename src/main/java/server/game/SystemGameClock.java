@@ -19,4 +19,9 @@ public final class SystemGameClock implements GameClock {
     public Instant startTimeForGameId(long gameId) {
         return Instant.ofEpochMilli(gameId * gameDuration.toMillis());
     }
+
+    @Override
+    public Instant now() {
+        return Instant.now();
+    }
 }

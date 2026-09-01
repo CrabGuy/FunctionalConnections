@@ -9,6 +9,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
+
+
 public final class PuzzleBank {
     private final List<List<GameSession.WordGroup>> puzzles;
 
@@ -21,6 +23,7 @@ public final class PuzzleBank {
         return puzzles.get(index);
     }
 
+// Eager loading of all puzzles is a deliberate simplicity trade-off for the ~911 dataset size.
     private static List<List<GameSession.WordGroup>> loadPuzzleBank(String filePath) {
         Path path = Path.of(filePath);
         if (!Files.exists(path)) {

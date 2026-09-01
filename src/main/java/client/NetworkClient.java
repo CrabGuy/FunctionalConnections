@@ -4,43 +4,31 @@ import shared.JsonCodec;
 import shared.Request;
 import shared.Response;
 
-import java.io.IOException;
+import java.io.*;
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 
 public final class NetworkClient implements AutoCloseable {
     private final SocketChannel socketChannel;
+    private final BufferedReader reader;
+    private final PrintWriter writer;
 
     public NetworkClient(String host, int port) throws IOException {
         this.socketChannel = SocketChannel.open(new InetSocketAddress(host, port));
+        this.reader = new BufferedReader(Channels.newReader(socketChannel, StandardCharsets.UTF_8));
+        this.writer = new PrintWriter(Channels.newWriter(socketChannel, StandardCharsets.UTF_8), true);
     }
 
     public <T> Response<T> sendRequest(Request request, Class<T> responseType) throws IOException {
-        String payload = JsonCodec.serialize(request) + "\n";
-        socketChannel.write(ByteBuffer.wrap(payload.getBytes(StandardCharsets.UTF_8)));
-
-        StringBuilder response = new StringBuilder();
-        ByteBuffer buffer = ByteBuffer.allocate(1024);
-
-        while (true) {
-            int bytesRead = socketChannel.read(buffer);
-            if (bytesRead == -1) {
-                throw new IOException("Connection closed by server.");
-            }
-            buffer.flip();
-            response.append(StandardCharsets.UTF_8.decode(buffer));
-            buffer.clear();
-
-            int newlineIndex = response.indexOf("\n");
-            if (newlineIndex != -1) {
-                response.setLength(newlineIndex);
-                break;
-            }
+        String payload = JsonCodec.serialize(request);
+        writer.println(payload);
+        String line = reader.readLine();
+        if (line == null) {
+            throw new IOException("Connection closed by server.");
         }
-
-        return JsonCodec.deserializeResponse(response.toString().trim(), responseType);
+        return JsonCodec.deserializeResponse(line.trim(), responseType);
     }
 
     @Override

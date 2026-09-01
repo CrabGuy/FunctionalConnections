@@ -1,9 +1,9 @@
 package server;
 
-import java.util.Comparator;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class UserManager {
     public enum UpdateResult {
@@ -14,61 +14,69 @@ public class UserManager {
 
     private final ConcurrentHashMap<String, User> users = new ConcurrentHashMap<>();
 
-    public boolean register(String username, String passwordHash) {
-        return users.putIfAbsent(username, new User(username, passwordHash, Map.of(), 0, 0)) == null;
+    public boolean register(String username, String password) {
+        String hashed = PasswordHasher.hash(password);
+        User newUser = new User(username, hashed);
+        return users.putIfAbsent(username, newUser) == null;
     }
 
-    public boolean authenticate(String username, String passwordHash) {
+    public boolean authenticate(String username, String password) {
         User user = users.get(username);
-        return user != null && user.passwordHash().equals(passwordHash);
+        return user != null && PasswordHasher.verify(password, user.passwordHash());
     }
 
-    public synchronized UpdateResult updateCredentials(String username, String oldPasswordHash,
-                                                       String newUsername, String newPasswordHash) {
-        User user = users.get(username);
-        if (user == null || !user.passwordHash().equals(oldPasswordHash)) {
+    public UpdateResult updateCredentials(String username, String oldPassword,
+                                          String newUsername, String newPassword) {
+        if (username == null || username.isBlank()) {
             return UpdateResult.INVALID_CREDENTIALS;
         }
-        String targetUsername = newUsername == null || newUsername.isBlank() ? username : newUsername;
-        if (!targetUsername.equals(username) && users.containsKey(targetUsername)) {
-            return UpdateResult.TARGET_USERNAME_TAKEN;
+        String targetUsername = (newUsername == null || newUsername.isBlank()) ? username : newUsername;
+        AtomicReference<UpdateResult> result = new AtomicReference<>(UpdateResult.INVALID_CREDENTIALS);
+
+        if (targetUsername.equals(username)) {
+            users.computeIfPresent(username, (name, existing) -> {
+                if (!PasswordHasher.verify(oldPassword, existing.passwordHash())) {
+                    result.set(UpdateResult.INVALID_CREDENTIALS);
+                    return existing;
+                }
+                String newPasswordHash = (newPassword != null && !newPassword.isBlank())
+                        ? PasswordHasher.hash(newPassword)
+                        : existing.passwordHash();
+                result.set(UpdateResult.SUCCESS);
+                return existing.withPasswordHash(newPasswordHash);
+            });
+            return result.get();
+        } else {
+            users.compute(username, (name, existing) -> {
+                if (existing == null || !PasswordHasher.verify(oldPassword, existing.passwordHash())) {
+                    result.set(UpdateResult.INVALID_CREDENTIALS);
+                    return existing;
+                }
+                String newPasswordHash = (newPassword != null && !newPassword.isBlank())
+                        ? PasswordHasher.hash(newPassword)
+                        : existing.passwordHash();
+                User newUser = new User(targetUsername, newPasswordHash);
+                if (users.putIfAbsent(targetUsername, newUser) != null) {
+                    result.set(UpdateResult.TARGET_USERNAME_TAKEN);
+                    return existing;
+                }
+                result.set(UpdateResult.SUCCESS);
+                return null;
+            });
+            return result.get();
         }
-        User updated = user;
-        if (!targetUsername.equals(username)) {
-            updated = updated.withUsername(targetUsername);
-            users.remove(username);
-        }
-        if (newPasswordHash != null && !newPasswordHash.isBlank()) {
-            updated = updated.withPasswordHash(newPasswordHash);
-        }
-        users.put(targetUsername, updated);
-        return UpdateResult.SUCCESS;
     }
 
     public User get(String username) {
         return users.get(username);
     }
 
-    public Stream<User> getLeaderboard() {
-        return users.values().stream()
-                .sorted(Comparator.comparingInt(User::getWins).reversed());
-    }
-
-    public int getPosition(String username) {
-        return (int) getLeaderboard()
-                .takeWhile(user -> !user.username().equals(username))
-                .count() + 1;
-    }
-
-    public void recordCompletedGame(String username, long gameId, int mistakes, int rightGuesses) {
-        users.computeIfPresent(username, (name, user) -> {
-            User.GameResult result = new User.GameResult(mistakes, rightGuesses);
-            return user.withAddedGame(gameId, result);
-        });
-    }
-
     public boolean usernameExists(String username) {
         return users.containsKey(username);
+    }
+
+    public Set<String> getAllUsernames() {
+        return Set.copyOf(users.keySet());
     }
 
     public Map<String, User> snapshot() {

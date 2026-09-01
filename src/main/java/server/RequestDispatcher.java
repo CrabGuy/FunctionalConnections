@@ -3,6 +3,7 @@ package server;
 import server.service.AuthService;
 import server.service.GameService;
 import server.service.StatsService;
+import shared.ErrorCode;
 import shared.Request;
 import shared.Response;
 
@@ -19,7 +20,10 @@ public final class RequestDispatcher {
 
     public Response<?> dispatch(Request request, String currentUser) {
         if (request == null) {
-            return Response.error(shared.ErrorCode.INVALID_REQUEST);
+            return Response.error(ErrorCode.INVALID_REQUEST);
+        }
+        if (currentUser != null) {
+            gameService.ensureAutoParticipation(currentUser);
         }
         return switch (request) {
             case Request.Register r -> authService.register(r);
@@ -31,6 +35,7 @@ public final class RequestDispatcher {
             case Request.RequestGameStats r -> gameService.getGameStats(currentUser, r.gameId());
             case Request.RequestLeaderboard r -> statsService.getLeaderboard(currentUser, r);
             case Request.RequestPlayerStats r -> statsService.getPlayerStats(currentUser);
+            default -> Response.error(ErrorCode.UNKNOWN_REQUEST);
         };
     }
 }

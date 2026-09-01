@@ -130,7 +130,6 @@ Connections is a word grouping game where players must find associations between
 - Multithreaded using Java thread pooling
 - Synchronized data structures for users and game state
 - JSON format for user and game persistence files
-- **Old curriculum students only**: Multicast UDP notification service for leaderboard updates
 
 ### Required Deliverables
 

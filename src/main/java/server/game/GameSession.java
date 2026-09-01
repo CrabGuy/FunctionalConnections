@@ -13,6 +13,8 @@ public final class GameSession {
         IN_PROGRESS, WON, LOST
     }
 
+    private static final int IMPLICIT_LAST_GROUP = 1;
+
     private final long id;
     private final List<WordGroup> wordGroups;
     private final Instant startTime;
@@ -27,25 +29,11 @@ public final class GameSession {
         this.maxMistakesAllowed = maxMistakesAllowed;
     }
 
-    public long id() {
-        return id;
-    }
-
-    public List<WordGroup> wordGroups() {
-        return wordGroups;
-    }
-
-    public Instant startTime() {
-        return startTime;
-    }
-
-    public Duration duration() {
-        return duration;
-    }
-
-    public int maxMistakesAllowed() {
-        return maxMistakesAllowed;
-    }
+    public long id() { return id; }
+    public List<WordGroup> wordGroups() { return wordGroups; }
+    public Instant startTime() { return startTime; }
+    public Duration duration() { return duration; }
+    public int maxMistakesAllowed() { return maxMistakesAllowed; }
 
     public Set<String> allWords() {
         return wordGroups.stream()
@@ -61,7 +49,7 @@ public final class GameSession {
     }
 
     public Status playerStatus(PlayerProgress progress, Instant now) {
-        if (progress.solvedCount() == wordGroups.size()) return Status.WON;
+        if (progress.solvedCount() == wordGroups.size() - IMPLICIT_LAST_GROUP) return Status.WON;
         if (remainingTime(now).isZero() || progress.mistakesMade() >= maxMistakesAllowed)
             return Status.LOST;
         return Status.IN_PROGRESS;
