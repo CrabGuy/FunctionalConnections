@@ -130,7 +130,6 @@ Connections is a word grouping game where players must find associations between
 - Multithreaded using Java thread pooling
 - Synchronized data structures for users and game state
 - JSON format for user and game persistence files
-- **Old curriculum students only**: Multicast UDP notification service for leaderboard updates
 
 ### Required Deliverables
 
@@ -189,7 +188,7 @@ All client-server communication uses structured textual JSON messages. Every req
 | **requestGameInfo** | `{ "operation": "requestGameInfo", "gameId": INT }` | Specify error codes (e.g., nonexistent game) and JSON response format with Section 2.1 information |
 | **requestGameStats** | `{ "operation": "requestGameStats", "gameId": INT }` | Option to specify current game. Specify error codes and JSON response format with Section 2.1 information |
 | **requestLeaderboard** | `{ "operation": "requestLeaderboard", "playerName": STRING, "topPlayers": INT }` | Can request relative ranking or top K users. Option to specify all players. Specify error codes and JSON response format with Section 2.1 information |
-| **requestPlayersStats** | `{ "operation": "requestPlayersStats" }` | Specify error codes and JSON response format with Section 2.1 information |
+| **requestPlayerStats** | `{ "operation": "requestPlayerStats" }` | Specify error codes and JSON response format with Section 2.1 information |
 
 ### Notes
 - The `gameId` field can be used to specify current game
