@@ -1,5 +1,6 @@
 package server.account;
 
+import server.account.exceptions.InvalidTokenException;
 import server.dto.AccountPrincipal;
 
 /**
@@ -22,5 +23,5 @@ public interface TokenSigner {
      * @throws InvalidTokenException if the signature is invalid, the token
      *         is malformed, or {@code expiresAt} is in the past
      */
-    AccountPrincipal verify(String token);
+    AccountPrincipal verify(String token) throws InvalidTokenException;
 }

@@ -1,5 +1,9 @@
 package server.account;
 
+import server.account.exceptions.IncorrectPasswordException;
+import server.account.exceptions.InvalidTokenException;
+import server.account.exceptions.NewUsernameAlreadyTakenException;
+import server.account.exceptions.UsernameAlreadyRegisteredException;
 import server.dto.AccountPrincipal;
 import shared.dto.LoginData;
 import shared.dto.RegisterData;
@@ -20,7 +24,7 @@ public interface AccountService {
      * @return confirmation of the created username
      * @throws UsernameAlreadyRegisteredException if {@code username} is already taken
      */
-    RegisterData register(String username, String password);
+    RegisterData register(String username, String password) throws UsernameAlreadyRegisteredException;
 
     /**
      * Authenticates a user and issues a signed account token, registering
@@ -36,7 +40,7 @@ public interface AccountService {
      * @throws IncorrectPasswordException if {@code username} does not exist
      *         or {@code password} does not match the stored hash
      */
-    LoginData login(String username, String password, int udpPort, String remoteAddress);
+    LoginData login(String username, String password, int udpPort, String remoteAddress) throws IncorrectPasswordException;
 
     /**
      * Logs a user out, removing their UDP notification registration.
@@ -51,7 +55,7 @@ public interface AccountService {
      * @param accountToken token identifying the session to log out
      * @throws InvalidTokenException if the token is malformed, invalid, or expired
      */
-    void logout(String accountToken);
+    void logout(String accountToken) throws InvalidTokenException;
 
     /**
      * Updates a user's username and/or password. Both must be re-supplied
@@ -68,7 +72,7 @@ public interface AccountService {
      *         registered to a different account
      */
     UpdateCredentialsData updateCredentials(String oldUsername, String newUsername,
-                                             String oldPassword, String newPassword);
+                                             String oldPassword, String newPassword) throws IncorrectPasswordException, NewUsernameAlreadyTakenException;
 
     /**
      * Resolves the caller's identity from a signed account token. Called by
@@ -78,5 +82,5 @@ public interface AccountService {
      * @return the identity and expiry encoded in the token
      * @throws InvalidTokenException if the token is malformed, invalid, or expired
      */
-    AccountPrincipal resolve(String accountToken);
+    AccountPrincipal resolve(String accountToken) throws InvalidTokenException;
 }
