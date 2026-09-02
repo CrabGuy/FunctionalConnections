@@ -20,7 +20,7 @@ public interface StatsService {
      * @return GameStatsData containing metrics such as total participants, completed players, winners, and average score.
      * @throws GameNotFoundException if the specified game ID does not exist.
      */
-    GameStatsData getGameStats(Long gameId) throws GameNotFoundException;
+    GameStatsData getGameStats(String accountToken, Long gameId) throws GameNotFoundException, InvalidTokenException;
 
     /**
      * Retrieves lifetime statistics for a specific player.
