@@ -32,6 +32,14 @@ package server.dto;
 public record Account(String username, String passwordHash) {}
 ```
 
+**`ServerConfig`** — Read from a server config file at startup.
+
+**Component: `PasswordHasher`**
+- `String hash(String rawPassword)`
+- `boolean matches(String rawPassword, String passwordHash)`
+
+Used internally by `AccountService` to avoid storing raw passwords in `Account.passwordHash`.
+
 **Component: `TokenSigner`**
 - `String sign(String username, long expiresAt)`
 - `AccountPrincipal verify(String token)` — throws on invalid signature or expired token
@@ -49,7 +57,7 @@ public record AccountPrincipal(String username, long expiresAt) {}
 - `AccountPrincipal resolve(String accountToken)` — used by every other service to identify the caller
 
 **Component: `AccountRepository`**
-- `Optional<Account> findByUsername(String username)`
+- `Optional<Account> findAccountByUsername(String username)`
 - `void save(Account account)`
 - `boolean existsByUsername(String username)`
 
@@ -84,17 +92,18 @@ Depends on: nothing else server-side.
 
 ### Slice C — Proposal submission & per-player game state
 
-**Existing records, unchanged:** `Proposal`, `PlayerGame`.
+**Records:** `Proposal`, `PlayerGame`.
 
 **Component: `ProposalService`**
-- `PlayerGameStatus submitProposal(String accountToken, List<String> words)`
+- `GameInfoData submitProposal(String accountToken, List<String> words)`
 - `GameInfoData getGameInfo(String accountToken, Long gameId)` — nullable `gameId` = current game
+- `GameInfoData getGameInfoForUsername(String username, long gameId)` — internal use only (GameTransitionWatcher), bypasses token resolution since the watcher already knows usernames, not tokens.
 
 **Component: `PlayerGameRepository`**
 - `PlayerGame findOrCreate(String username, long gameId)`
 - `void save(PlayerGame playerGame)`
 - `List<PlayerGame> findByGame(long gameId)`
-- `List<PlayerGame> findByUsername(String username)`
+- `List<PlayerGame> findPlayerGameByUsername(String username)`
 
 Depends on: Slice A (`resolve`), Slice B (`GameClock`, `GameRepository`).
 
@@ -103,7 +112,7 @@ Depends on: Slice A (`resolve`), Slice B (`GameClock`, `GameRepository`).
 ### Slice D — Stats & Leaderboard
 
 **Component: `StatsService`**
-- `GameStatsData getGameStats(Long gameId)` — aggregates over `PlayerGameRepository.findByGame`
+- - `GameStatsData getGameStats(String accountToken, Long gameId) throws GameNotFoundException, InvalidTokenException` — aggregates over `PlayerGameRepository.findByGame`
 - `PlayerStatsData getPlayerStats(String accountToken)` — aggregates over `PlayerGameRepository.findByUsername`
 
 **Component: `LeaderboardService`**
@@ -123,11 +132,11 @@ Depends on: Slice A, Slice C.
 - reads/writes newline-delimited JSON, deserializes into the concrete `ApiRequest` subtype by `operation`
 
 **Component: `NotificationService`**
-- `void notifyGameEnd(GameStatsData result, Collection<String> usernames)` — sends over UDP using `NotificationRegistry` lookups
+- `void notifyGameEnd(Map<String, GameInfoData> resultsByUsername)` — sends over UDP using `NotificationRegistry` lookups
 
 **Component: `GameTransitionWatcher`**
 - background thread that periodically compares `GameClock.currentGameId(now)` to the last observed id
-- on change, gathers active participants and calls `NotificationService.notifyGameEnd`
+- on game change, gathers active participants, calls `ProposalService.getGameInfoForUsername` for each to build the map, then calls `NotificationService.notifyGameEnd`.
 - owns no game state itself — purely a clock-driven trigger
 
 Depends on: all service slices (A–D), for their public interfaces only.
@@ -137,8 +146,10 @@ Depends on: all service slices (A–D), for their public interfaces only.
 ### Slice F — Persistence
 
 **Component: `PersistenceService`**
-- `void schedulePeriodicSnapshot()` — background task, writes `Account` and `PlayerGame` records to the configured storage directory as JSON
-- `void loadOnStartup()` — restores `AccountRepository` and `PlayerGameRepository` state
+- `void saveSnapshot(AccountRepository accounts, PlayerGameRepository playerGames) throws IOException`
+- `void loadSnapshot(AccountRepository accounts, PlayerGameRepository playerGames) throws IOException`
+- `void schedulePeriodicSnapshot(AccountRepository accounts, PlayerGameRepository playerGames)`
+
 
 Uses the repository interfaces from Slices A and C.
 
@@ -146,9 +157,9 @@ Uses the repository interfaces from Slices A and C.
 
 ## 3. Client components
 
-- `ClientConfig`, `ClientGameState` — existing, unchanged.
-- **`ConnectionManager`** — `ApiResponse<?> send(ApiRequest request)`, blocking request/response over the persistent TCP NIO channel.
-- **`NotificationListener`** — own thread, binds a UDP socket at the port advertised via `LoginRequest`, deserializes incoming game-end notifications, updates `ClientGameState`.
+- `ClientConfig`
+- **`ConnectionManager`** — `void connect(String host, int port) throws IOException`, `ApiResponse<?> send(ApiRequest request) throws IOException`, `void close() throws IOException`, blocking request/response over the persistent TCP NIO channel.
+- **`NotificationListener`** — own thread, binds a UDP socket at the port advertised via `LoginRequest`, deserializes incoming game-end notifications.
 - **`CommandLineInterface`** — parses user commands into the matching `*Request` record, calls `ConnectionManager.send`, prints results.
 
 Depends only on `shared`.

@@ -5,7 +5,6 @@ import java.io.IOException;
 
 
 import client.dto.ClientConfig;
-import client.dto.ClientGameState;
 
 /**
  * Parses user commands from the command line, converts them into the
@@ -40,7 +39,7 @@ public interface CommandLineInterface {
     void start(ClientConfig config,
                ConnectionManager connectionManager,
                NotificationListener notificationListener,
-               ClientGameState gameState) throws IOException;
+               AccountSession accountSession) throws IOException;
 
     /**
      * Processes a single command string. This method is useful for testing or
@@ -54,6 +53,5 @@ public interface CommandLineInterface {
      *                     be read
      */
     void processCommand(String command,
-                        ConnectionManager connectionManager,
-                        ClientGameState gameState) throws IOException;
+                        ConnectionManager connectionManager) throws IOException;
 }
