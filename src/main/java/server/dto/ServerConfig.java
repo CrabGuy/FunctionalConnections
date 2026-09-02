@@ -1,5 +1,4 @@
 package server.dto;
-
 public record ServerConfig(
         int tcpPort,
         long gameDurationMillis,

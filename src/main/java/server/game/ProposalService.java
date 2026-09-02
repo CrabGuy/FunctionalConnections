@@ -4,7 +4,6 @@ import server.account.exceptions.InvalidTokenException;
 import server.game.exceptions.GameNotFoundException;
 import server.game.exceptions.InvalidProposalException;
 import java.util.List;
-
 public interface ProposalService {
     GameInfoData submitProposal(String accountToken, List<String> words)
             throws InvalidTokenException, InvalidProposalException;

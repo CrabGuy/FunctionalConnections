@@ -1,9 +1,4 @@
 package shared.dto;
-
-/**
- * Enumeration of all possible error codes that the server may return
- * in an {@link ApiResponse}.
- */
 public enum ErrorCode {
     USERNAME_ALREADY_REGISTERED,
     INCORRECT_PASSWORD,
