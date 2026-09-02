@@ -11,7 +11,7 @@ import java.util.Optional;
  */
 public interface AccountRepository {
 
-    Optional<Account> findByUsername(String username);
+    Optional<Account> findAccountByUsername(String username);
 
     void save(Account account);
 

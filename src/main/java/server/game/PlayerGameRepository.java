@@ -41,5 +41,5 @@ public interface PlayerGameRepository {
      * @param username the username
      * @return a list of PlayerGame states for the given user
      */
-    List<PlayerGame> findByUsername(String username);
+    List<PlayerGame> findPlayerGameByUsername(String username);
 }

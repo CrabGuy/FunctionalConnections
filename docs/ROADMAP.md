@@ -140,7 +140,7 @@ Depends on: all service slices (A–D), for their public interfaces only.
 - `void schedulePeriodicSnapshot()` — background task, writes `Account` and `PlayerGame` records to the configured storage directory as JSON
 - `void loadOnStartup()` — restores `AccountRepository` and `PlayerGameRepository` state
 
-Implements the repository interfaces from Slices A and C.
+Uses the repository interfaces from Slices A and C.
 
 ---
 
