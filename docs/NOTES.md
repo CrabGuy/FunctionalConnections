@@ -22,3 +22,7 @@ Game duration should be a config parameter.
 PlayerCredentials and PlayerGames data should persist on restarts, so data should be queued for saving after each game ends, they should be in memory at all times, but saved to a JSON file after each game end.
 When a player performs any operation which gives them information about the game (included login), they should be considered playing the game and an empty entry in PlayerGames should be created (just as if they entered the game but not guessed anything yet)
 As a response to GameInfo it should not send everything, just enough information for the client to compute the values it needs itself, which means their current guesses and they should calculate score, mistakes etc.
+
+# General
+
+Interface implementation should be made by using records that take parameters as input for dependency injection
