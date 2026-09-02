@@ -1,34 +1,9 @@
-# Architecture.md
 
 # Client
 
 Client should only keep track of AccountToken and everything else should be derived from the server, not stored or saved.
 Score, mistakes and other stats should follow from a function which calculates them.
 UDP port to send notifications should be sent to the server on login.
-
-
-## Data
-
-### Static
-- AccountToken?
-
-### Derived
-- Any game information (start time, duration, word groups, words already guessed, mistakes etc)
-- Any game stats (players in game, finished etc)
-- Leaderboards
-- Player stats
-
-## Transformations
-- Login(username, password) -> AccountToken
-- Register(username, password)
-- UpdateCredentials(old_username, old_password, new_username, new_password)
-- Logout() -> AccountToken
-- SubmitProposal(AccountToken, word_group) -> GameState
-- RequestGameInfo(AccountToken, game_id) -> GameInfo
-- RequestGameStats(AccountToken, game_id) -> GameStats
-- RequestLeaderboard(AccountToken, K_users) -> Leaderboard
-- RequestLeaderboard(AccountToken, username) -> LeaderboardPosition
-- RequestPlayerStats(AccountToken) -> PlayerStats
 
 # Server
 
@@ -47,25 +22,3 @@ Game duration should be a config parameter.
 PlayerCredentials and PlayerGames data should persist on restarts, so data should be queued for saving after each game ends, they should be in memory at all times, but saved to a JSON file after each game end.
 When a player performs any operation which gives them information about the game (included login), they should be considered playing the game and an empty entry in PlayerGames should be created (just as if they entered the game but not guessed anything yet)
 As a response to GameInfo it should not send everything, just enough information for the client to compute the values it needs itself, which means their current guesses and they should calculate score, mistakes etc.
-
-## Data
-
-### Static
-- GameWordGroups
-- PlayerCredentials (username, passwordHash)
-- PlayerGames (Map(username, game_id) -> PlayerGame)
-
-### Derived
-- IndividualGameStats
-- OverallStats
-- Leaderboard
-
-## Transformations
-- CreateUser(username, password) -> PlayerCredentials
-- LoginUser(username, password) -> GetToken(username, password) -> AccountToken
-- UpdateCredentials(old_credentials, new_credentials) -> PlayerCredentials, PlayerGames
-- GameInfo(game_id) -> GetGameState(PlayerGames, username, game_id) -> GameInfo
-- EvaluateGameState(groups_guessed, game_solution) -> GameState
-- GameStats(game_id) -> GetGameStats(PlayerGames, game_id) -> GameStats
-- GetTopLeaderboard(PlayerGames) -> Leaderboard
-- GetPlayerStats(PlayerGames, username) -> PlayerStats
