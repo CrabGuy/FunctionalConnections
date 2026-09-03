@@ -1,6 +1,7 @@
 package server.account;
 
 import server.dto.Account;
+import java.util.List;
 import java.util.Optional;
 
 public interface AccountRepository {
@@ -8,4 +9,5 @@ public interface AccountRepository {
     void save(Account account);
     boolean existsByUsername(String username);
     void deleteByUsername(String username);
+    List<Account> findAll();
 }

@@ -51,4 +51,9 @@ public final class InMemoryPlayerGameRepository implements PlayerGameRepository 
                 .map(PlayerGame::username)
                 .collect(Collectors.toUnmodifiableSet());
     }
+
+    @Override
+    public List<PlayerGame> findAll() {
+        return List.copyOf(store.values());
+    }
 }

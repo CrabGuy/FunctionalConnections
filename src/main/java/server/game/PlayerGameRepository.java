@@ -13,4 +13,5 @@ public interface PlayerGameRepository {
     List<PlayerGame> findPlayerGameByUsername(String username);
     Set<String> findAllUsernames();
     Optional<PlayerGame> findByUsernameAndGame(String username, long gameId);
+    List<PlayerGame> findAll();
 }

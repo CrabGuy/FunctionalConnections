@@ -2,6 +2,7 @@ package server.account;
 
 import server.dto.Account;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -28,5 +29,10 @@ public class InMemoryAccountRepository implements AccountRepository {
     @Override
     public void deleteByUsername(String username) {
         accounts.remove(username);
+    }
+
+    @Override
+    public List<Account> findAll() {
+        return List.copyOf(accounts.values());
     }
 }

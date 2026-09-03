@@ -168,6 +168,11 @@ public class StatsTestFactory {
         public Optional<PlayerGame> findByUsernameAndGame(String username, long gameId) {
             return Optional.ofNullable(store.get(new PlayerGameKey(username, gameId)));
         }
+
+        @Override
+        public List<PlayerGame> findAll() {
+            return List.copyOf(store.values());
+        }
     }
 
     private static class StubAccountService implements AccountService {
