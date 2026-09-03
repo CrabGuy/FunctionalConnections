@@ -3,16 +3,16 @@ package client;
 import client.json.ProtocolCodec;
 import shared.dto.ApiRequest;
 import shared.dto.ApiResponse;
-
-import java.io.EOFException;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 
-/** Persistent newline-delimited TCP connection using Java NIO. */
 public record NioConnectionManager(PersistentNioConnection connection) implements ConnectionManager {
+
     public NioConnectionManager() {
         this(new PersistentNioConnection());
     }
@@ -33,10 +33,10 @@ public record NioConnectionManager(PersistentNioConnection connection) implement
         connection.close();
     }
 
-    /** Stateful I/O boundary kept outside the record fields used for dependency injection. */
     public static final class PersistentNioConnection {
         private SocketChannel channel;
-        private byte[] pending = new byte[0];
+        private BufferedReader reader;
+        private BufferedWriter writer;
 
         public void connect(String host, int port) throws IOException {
             close();
@@ -44,88 +44,33 @@ public record NioConnectionManager(PersistentNioConnection connection) implement
             newChannel.configureBlocking(true);
             try {
                 newChannel.connect(new InetSocketAddress(host, port));
-            } catch (IOException exception) {
+            } catch (IOException e) {
                 newChannel.close();
-                throw exception;
+                throw e;
             }
             channel = newChannel;
-            pending = new byte[0];
+            reader = new BufferedReader(Channels.newReader(newChannel, StandardCharsets.UTF_8));
+            writer = new BufferedWriter(Channels.newWriter(newChannel, StandardCharsets.UTF_8));
         }
 
         public String send(String json) throws IOException {
             ensureConnected();
-            writeFully((json + "\n").getBytes(StandardCharsets.UTF_8));
-            return readLine();
+            writer.write(json);
+            writer.newLine();
+            writer.flush();
+            return reader.readLine();
         }
 
         public void close() throws IOException {
-            if (channel == null) {
-                return;
-            }
-            try {
-                channel.close();
-            } finally {
-                channel = null;
-                pending = new byte[0];
-            }
-        }
-
-        private void writeFully(byte[] bytes) throws IOException {
-            ByteBuffer buffer = ByteBuffer.wrap(bytes);
-            while (buffer.hasRemaining()) {
-                channel.write(buffer);
-            }
-        }
-
-        private String readLine() throws IOException {
-            while (true) {
-                int newline = indexOfNewline(pending);
-                if (newline >= 0) {
-                    return takePendingLine(newline);
-                }
-
-                ByteBuffer buffer = ByteBuffer.allocate(4096);
-                int read = channel.read(buffer);
-                if (read < 0) {
-                    throw new EOFException("Server closed the TCP connection before sending a response");
-                }
-                if (read > 0) {
-                    appendPending(buffer, read);
+            if (channel != null) {
+                try {
+                    channel.close();
+                } finally {
+                    channel = null;
+                    reader = null;
+                    writer = null;
                 }
             }
-        }
-
-        private String takePendingLine(int newline) {
-            int contentLength = newline;
-            if (contentLength > 0 && pending[contentLength - 1] == '\r') {
-                contentLength--;
-            }
-
-            String line = new String(pending, 0, contentLength, StandardCharsets.UTF_8);
-            int remainingLength = pending.length - newline - 1;
-            byte[] remaining = new byte[remainingLength];
-            System.arraycopy(pending, newline + 1, remaining, 0, remainingLength);
-            pending = remaining;
-            return line;
-        }
-
-        private void appendPending(ByteBuffer buffer, int length) {
-            buffer.flip();
-            byte[] chunk = new byte[length];
-            buffer.get(chunk);
-            byte[] merged = new byte[pending.length + chunk.length];
-            System.arraycopy(pending, 0, merged, 0, pending.length);
-            System.arraycopy(chunk, 0, merged, pending.length, chunk.length);
-            pending = merged;
-        }
-
-        private static int indexOfNewline(byte[] bytes) {
-            for (int i = 0; i < bytes.length; i++) {
-                if (bytes[i] == '\n') {
-                    return i;
-                }
-            }
-            return -1;
         }
 
         private void ensureConnected() throws IOException {
