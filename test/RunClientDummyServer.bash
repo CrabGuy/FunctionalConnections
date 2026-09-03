@@ -17,7 +17,7 @@ SERVER_LOG="$PROJECT_ROOT/server.log"
 
 # ----- Clean previous build -----
 echo "Cleaning previous build..."
-rm -rf "$OUT_DIR"
+rm -rf "$PROJECT_ROOT/target"       # Remove entire target directory
 mkdir -p "$OUT_DIR"
 
 # ----- Locate source files -----
@@ -61,7 +61,7 @@ cleanup() {
         wait $SERVER_PID 2>/dev/null
     fi
     echo "Removing compiled classes..."
-    rm -rf "$OUT_DIR"
+    rm -rf "$PROJECT_ROOT/target"   # Remove entire target directory
     echo "Done."
 }
 trap cleanup EXIT
