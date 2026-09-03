@@ -26,7 +26,8 @@ public class AccountTestFactory {
             60_000,              // persistenceIntervalMillis
             "test-secret-key-for-jwt-signing-which-is-long-enough",
             3_600_000,           // tokenExpiryMillis (not used by signer directly)
-            4                    // threadPoolSize
+            4,                    // threadPoolSize
+            "games.json"
     );
 
     public static ServerConfig createTestConfig() {
@@ -38,7 +39,8 @@ public class AccountTestFactory {
                 DEFAULT_CONFIG.persistenceIntervalMillis(),
                 DEFAULT_CONFIG.jwtSecret(),
                 DEFAULT_CONFIG.tokenExpiryMillis(),
-                DEFAULT_CONFIG.threadPoolSize()
+                DEFAULT_CONFIG.threadPoolSize(),
+                DEFAULT_CONFIG.gameDataFile()
         );
     }
 

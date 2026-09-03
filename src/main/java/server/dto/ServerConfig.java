@@ -1,4 +1,5 @@
 package server.dto;
+
 public record ServerConfig(
         int tcpPort,
         long gameDurationMillis,
@@ -6,5 +7,6 @@ public record ServerConfig(
         long persistenceIntervalMillis,
         String jwtSecret,
         long tokenExpiryMillis,
-        int threadPoolSize
+        int threadPoolSize,
+        String gameDataFile
 ) {}
