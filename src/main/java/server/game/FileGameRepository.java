@@ -12,25 +12,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Implementation of GameRepository that reads game data lazily from a JSON file.
- * The file is expected to be a JSON array of objects with fields:
- *   - gameId (long)
- *   - groups (array of objects with "theme" and "words")
- * The repository maps actual game slot IDs (time‑based) to file entries via modulo,
- * assuming the file's entries are contiguous and start at index 0.
- */
 public record FileGameRepository(String gameDataFile) implements GameRepository {
-
-    // Static cache for total number of games per file path (computed lazily, once).
     private static final Map<String, Integer> TOTAL_GAMES_CACHE = new ConcurrentHashMap<>();
 
     @Override
     public GameWordGroups loadById(long gameId) throws GameNotFoundException {
+        // Reject negative game IDs immediately
+        if (gameId < 0) {
+            throw new GameNotFoundException(gameId);
+        }
+
         int total = getTotalGames();
         if (total == 0) {
             throw new GameNotFoundException(gameId);
         }
+
         int index = (int) (gameId % total);
         try (JsonReader reader = new JsonReader(new FileReader(gameDataFile))) {
             reader.beginArray();
@@ -51,6 +47,11 @@ public record FileGameRepository(String gameDataFile) implements GameRepository 
 
     @Override
     public boolean exists(long gameId) {
+        // Negative IDs never exist
+        if (gameId < 0) {
+            return false;
+        }
+
         int total = getTotalGames();
         if (total == 0) return false;
         int index = (int) (gameId % total);
