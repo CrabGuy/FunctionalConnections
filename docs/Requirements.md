@@ -69,7 +69,7 @@ Connections is a word grouping game where players must find associations between
    - Current Streak (consecutive wins)
    - Max Streak (highest consecutive wins)
    - Perfect Puzzles (0 mistakes)
-   - Mistake Histogram (0-4 mistakes, failures, incomplete)
+   - Mistake Histogram (0-3 mistakes, failures, incomplete)
 
 **Automatic Participation**: Logged-in players automatically join new games when they start
 

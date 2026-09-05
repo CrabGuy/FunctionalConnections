@@ -29,6 +29,9 @@ public class PersistenceTest {
         runTest("testSaveAndLoadAccounts", PersistenceTest::testSaveAndLoadAccounts);
         runTest("testSaveAndLoadPlayerGames", PersistenceTest::testSaveAndLoadPlayerGames);
         runTest("testLoadNonExistentSnapshot", PersistenceTest::testLoadNonExistentSnapshot);
+        runTest("testEmptySnapshotRoundTrip", PersistenceTest::testEmptySnapshotRoundTrip);
+        runTest("testMixedEmptySnapshots", PersistenceTest::testMixedEmptySnapshots);
+        runTest("testRepeatedSaveLoad", PersistenceTest::testRepeatedSaveLoad);
 
         System.out.println("\n-----------------------------------");
         System.out.println("Tests passed: " + passed);
@@ -168,6 +171,105 @@ public class PersistenceTest {
 
             check(!accounts.existsByUsername("anyone"), "Accounts should be empty after loading missing snapshot");
             check(games.findAllUsernames().isEmpty(), "Player games should be empty after loading missing snapshot");
+        } finally {
+            Files.walk(tempDir)
+                    .sorted((a, b) -> b.compareTo(a))
+                    .forEach(p -> p.toFile().delete());
+        }
+    }
+
+    private static void testEmptySnapshotRoundTrip() throws IOException {
+        Path tempDir = Files.createTempDirectory("persistence-test-empty");
+        try {
+            PersistenceService persistence = PersistenceTestFactory.createPersistenceService(tempDir);
+            AccountRepository emptyAccounts = PersistenceTestFactory.createAccountRepository();
+            PlayerGameRepository emptyGames = PersistenceTestFactory.createPlayerGameRepository();
+
+            // Save empty snapshot
+            persistence.saveSnapshot(emptyAccounts, emptyGames);
+
+            // Verify file existence (adjusted to actual file names used by service)
+            Path accountsFile = tempDir.resolve("accounts.json");
+            Path gamesFile = tempDir.resolve("playerGames.json"); // corrected name
+            check(Files.exists(accountsFile), "accounts.json should exist after saving empty snapshot");
+            check(Files.exists(gamesFile), "playerGames.json should exist after saving empty snapshot");
+            check(Files.size(accountsFile) > 0, "accounts.json should not be empty");
+            check(Files.size(gamesFile) > 0, "playerGames.json should not be empty");
+
+            // Load into fresh repositories
+            AccountRepository loadedAccounts = PersistenceTestFactory.createAccountRepository();
+            PlayerGameRepository loadedGames = PersistenceTestFactory.createPlayerGameRepository();
+            persistence.loadSnapshot(loadedAccounts, loadedGames);
+
+            check(!loadedAccounts.existsByUsername("any"), "Accounts should be empty after loading empty snapshot");
+            check(loadedGames.findAllUsernames().isEmpty(), "Player games should be empty after loading empty snapshot");
+        } finally {
+            Files.walk(tempDir)
+                    .sorted((a, b) -> b.compareTo(a))
+                    .forEach(p -> p.toFile().delete());
+        }
+    }
+
+    private static void testMixedEmptySnapshots() throws IOException {
+        Path tempDir = Files.createTempDirectory("persistence-test-mixed");
+        try {
+            PersistenceService persistence = PersistenceTestFactory.createPersistenceService(tempDir);
+
+            // Case 1: only accounts populated
+            AccountRepository accounts = PersistenceTestFactory.createAccountRepository();
+            accounts.save(new Account("user1", "hash1"));
+            PlayerGameRepository games = PersistenceTestFactory.createPlayerGameRepository();
+            persistence.saveSnapshot(accounts, games);
+
+            AccountRepository loadedAccounts = PersistenceTestFactory.createAccountRepository();
+            PlayerGameRepository loadedGames = PersistenceTestFactory.createPlayerGameRepository();
+            persistence.loadSnapshot(loadedAccounts, loadedGames);
+            check(loadedAccounts.existsByUsername("user1"), "user1 should be loaded");
+            check(loadedGames.findAllUsernames().isEmpty(), "Games should be empty when only accounts saved");
+
+            // Case 2: only player games populated
+            games = PersistenceTestFactory.createPlayerGameRepository();
+            PlayerGame pg = games.findOrCreate("user2", 1L);
+            games.save(pg);
+            accounts = PersistenceTestFactory.createAccountRepository();
+            persistence.saveSnapshot(accounts, games);
+
+            loadedAccounts = PersistenceTestFactory.createAccountRepository();
+            loadedGames = PersistenceTestFactory.createPlayerGameRepository();
+            persistence.loadSnapshot(loadedAccounts, loadedGames);
+            check(!loadedAccounts.existsByUsername("any"), "Accounts should be empty when only games saved");
+            check(loadedGames.findAllUsernames().size() == 1, "One user in games after loading");
+        } finally {
+            Files.walk(tempDir)
+                    .sorted((a, b) -> b.compareTo(a))
+                    .forEach(p -> p.toFile().delete());
+        }
+    }
+
+    private static void testRepeatedSaveLoad() throws IOException {
+        Path tempDir = Files.createTempDirectory("persistence-test-repeated");
+        try {
+            PersistenceService persistence = PersistenceTestFactory.createPersistenceService(tempDir);
+            AccountRepository accounts = PersistenceTestFactory.createAccountRepository();
+            PlayerGameRepository games = PersistenceTestFactory.createPlayerGameRepository();
+
+            // First save
+            accounts.save(new Account("alice", "hashA"));
+            persistence.saveSnapshot(accounts, games);
+
+            // Modify accounts and save again
+            accounts.save(new Account("bob", "hashB"));
+            persistence.saveSnapshot(accounts, games);
+
+            // Load into fresh repos
+            AccountRepository loadedAccounts = PersistenceTestFactory.createAccountRepository();
+            PlayerGameRepository loadedGames = PersistenceTestFactory.createPlayerGameRepository();
+            persistence.loadSnapshot(loadedAccounts, loadedGames);
+
+            check(loadedAccounts.existsByUsername("alice"), "alice should still be present after second save");
+            check(loadedAccounts.existsByUsername("bob"), "bob should be present after second save");
+            check("hashA".equals(loadedAccounts.findAccountByUsername("alice").orElseThrow().passwordHash()),
+                    "alice's hash should remain unchanged");
         } finally {
             Files.walk(tempDir)
                     .sorted((a, b) -> b.compareTo(a))
