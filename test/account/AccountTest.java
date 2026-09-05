@@ -18,7 +18,15 @@ import shared.dto.UpdateCredentialsData;
 
 import java.net.InetSocketAddress;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Simple test runner for the Account slice.
@@ -37,16 +45,26 @@ public class AccountTest {
         runTest("testRegisterDuplicateUsername", AccountTest::testRegisterDuplicateUsername);
         runTest("testLoginSuccess", AccountTest::testLoginSuccess);
         runTest("testLoginIncorrectPassword", AccountTest::testLoginIncorrectPassword);
+        runTest("testLoginNonexistentUsername", AccountTest::testLoginNonexistentUsername);
         runTest("testLogout", AccountTest::testLogout);
+        runTest("testLogoutInvalidToken", AccountTest::testLogoutInvalidToken);
         runTest("testUpdateCredentialsSuccess", AccountTest::testUpdateCredentialsSuccess);
         runTest("testUpdateCredentialsIncorrectOldPassword", AccountTest::testUpdateCredentialsIncorrectOldPassword);
         runTest("testUpdateCredentialsNewUsernameTaken", AccountTest::testUpdateCredentialsNewUsernameTaken);
+        runTest("testUpdateCredentialsNonexistentOldUsername", AccountTest::testUpdateCredentialsNonexistentOldUsername);
+        runTest("testUpdateCredentialsSameUsername", AccountTest::testUpdateCredentialsSameUsername);
         runTest("testResolveValidToken", AccountTest::testResolveValidToken);
         runTest("testResolveInvalidToken", AccountTest::testResolveInvalidToken);
         runTest("testPasswordHasher", AccountTest::testPasswordHasher);
         runTest("testTokenSigner", AccountTest::testTokenSigner);
+        runTest("testTokenSignerTamperedSignature", AccountTest::testTokenSignerTamperedSignature);
+        runTest("testTokenSignerNullToken", AccountTest::testTokenSignerNullToken);
         runTest("testAccountRepository", AccountTest::testAccountRepository);
+        runTest("testAccountRepositoryOverwritesExisting", AccountTest::testAccountRepositoryOverwritesExisting);
         runTest("testNotificationRegistry", AccountTest::testNotificationRegistry);
+        runTest("testNotificationRegistryReRegisterUpdatesAddress", AccountTest::testNotificationRegistryReRegisterUpdatesAddress);
+        runTest("testConcurrentRegisterSameUsername", AccountTest::testConcurrentRegisterSameUsername);
+        runTest("testConcurrentLoginLogoutSameUser", AccountTest::testConcurrentLoginLogoutSameUser);
 
         System.out.println("\n-----------------------------------");
         System.out.println("Tests passed: " + passed);
@@ -161,6 +179,22 @@ public class AccountTest {
                 "Login with wrong password should throw IncorrectPasswordException");
     }
 
+    private static void testLoginNonexistentUsername() {
+        AccountRepository repo = AccountTestFactory.createAccountRepository();
+        NotificationRegistry notifReg = AccountTestFactory.createNotificationRegistry();
+        PasswordHasher hasher = AccountTestFactory.createPasswordHasher();
+        TokenSigner signer = AccountTestFactory.createTokenSigner();
+        ServerConfig config = AccountTestFactory.createTestConfig();
+        AccountService service = AccountTestFactory.createAccountService(repo, notifReg, hasher, signer, config);
+
+        // Design choice: a username that was never registered fails the same
+        // way as a wrong password for an existing one, so the error alone
+        // can't be used to enumerate which usernames exist on the server.
+        assertThrows(IncorrectPasswordException.class,
+                () -> service.login("ghost", "whatever", 0, "127.0.0.1"),
+                "Login with an unknown username should throw IncorrectPasswordException, not leak account existence");
+    }
+
     private static void testLogout() {
         AccountRepository repo = AccountTestFactory.createAccountRepository();
         NotificationRegistry notifReg = AccountTestFactory.createNotificationRegistry();
@@ -175,6 +209,19 @@ public class AccountTest {
 
         service.logout(data.accountToken());
         check(notifReg.lookup("erin").isEmpty(), "UDP registration should be removed after logout");
+    }
+
+    private static void testLogoutInvalidToken() {
+        AccountRepository repo = AccountTestFactory.createAccountRepository();
+        NotificationRegistry notifReg = AccountTestFactory.createNotificationRegistry();
+        PasswordHasher hasher = AccountTestFactory.createPasswordHasher();
+        TokenSigner signer = AccountTestFactory.createTokenSigner();
+        ServerConfig config = AccountTestFactory.createTestConfig();
+        AccountService service = AccountTestFactory.createAccountService(repo, notifReg, hasher, signer, config);
+
+        assertThrows(InvalidTokenException.class,
+                () -> service.logout("not-a-real-token"),
+                "Logout with an invalid/unknown token should throw InvalidTokenException");
     }
 
     private static void testUpdateCredentialsSuccess() {
@@ -223,6 +270,45 @@ public class AccountTest {
         assertThrows(NewUsernameAlreadyTakenException.class,
                 () -> service.updateCredentials("henry", "irene", "pw1", "pw3"),
                 "Update to an already taken username should throw NewUsernameAlreadyTakenException");
+    }
+
+    private static void testUpdateCredentialsNonexistentOldUsername() {
+        AccountRepository repo = AccountTestFactory.createAccountRepository();
+        NotificationRegistry notifReg = AccountTestFactory.createNotificationRegistry();
+        PasswordHasher hasher = AccountTestFactory.createPasswordHasher();
+        TokenSigner signer = AccountTestFactory.createTokenSigner();
+        ServerConfig config = AccountTestFactory.createTestConfig();
+        AccountService service = AccountTestFactory.createAccountService(repo, notifReg, hasher, signer, config);
+
+        // Consistent with login: an oldUsername that was never registered
+        // can't have its password verified, so it fails the same way as a
+        // wrong password rather than a distinct "no such user" error.
+        assertThrows(IncorrectPasswordException.class,
+                () -> service.updateCredentials("ghost", "ghost2", "whatever", "newpw"),
+                "updateCredentials for a never-registered username should throw IncorrectPasswordException");
+    }
+
+    private static void testUpdateCredentialsSameUsername() {
+        AccountRepository repo = AccountTestFactory.createAccountRepository();
+        NotificationRegistry notifReg = AccountTestFactory.createNotificationRegistry();
+        PasswordHasher hasher = AccountTestFactory.createPasswordHasher();
+        TokenSigner signer = AccountTestFactory.createTokenSigner();
+        ServerConfig config = AccountTestFactory.createTestConfig();
+        AccountService service = AccountTestFactory.createAccountService(repo, notifReg, hasher, signer, config);
+
+        service.register("nora", "oldpass");
+
+        // Renaming to the SAME username (i.e. only changing the password)
+        // must not be rejected as "already taken": the existing account found
+        // under that username IS the account being updated, not a different
+        // one that happens to collide.
+        UpdateCredentialsData result = service.updateCredentials("nora", "nora", "oldpass", "newpass");
+        check("nora".equals(result.newUsername()), "Username should remain unchanged");
+
+        Optional<Account> updated = repo.findAccountByUsername("nora");
+        check(updated.isPresent(), "Account should still exist under the same username");
+        check(hasher.matches("newpass", updated.get().passwordHash()),
+                "Password should be updated even though the username didn't change");
     }
 
     private static void testResolveValidToken() {
@@ -281,6 +367,33 @@ public class AccountTest {
                 "Verifying an expired token should throw InvalidTokenException");
     }
 
+    private static void testTokenSignerTamperedSignature() {
+        TokenSigner signer = AccountTestFactory.createTokenSigner();
+        long nowSeconds = Instant.now().getEpochSecond();
+        String token = signer.sign("oliver", nowSeconds + 60);
+
+        String tampered = flipMiddleCharacter(token);
+        check(!tampered.equals(token), "Test setup sanity check: tampering must actually change the token");
+
+        assertThrows(InvalidTokenException.class,
+                () -> signer.verify(tampered),
+                "Verifying a token with a tampered signature/payload should throw InvalidTokenException");
+    }
+
+    private static void testTokenSignerNullToken() {
+        TokenSigner signer = AccountTestFactory.createTokenSigner();
+        assertThrows(InvalidTokenException.class,
+                () -> signer.verify(null),
+                "Verifying a null token should throw InvalidTokenException, not NullPointerException");
+    }
+
+    private static String flipMiddleCharacter(String token) {
+        char[] chars = token.toCharArray();
+        int idx = chars.length / 2;
+        chars[idx] = (chars[idx] == 'A') ? 'B' : 'A';
+        return new String(chars);
+    }
+
     private static void testAccountRepository() {
         AccountRepository repo = AccountTestFactory.createAccountRepository();
         Account acc = new Account("lisa", "hash123");
@@ -291,6 +404,19 @@ public class AccountTest {
         check("hash123".equals(found.get().passwordHash()),
                 "Found account should have correct hash");
         check(!repo.existsByUsername("nobody"), "Repository should not report non‑existing username");
+    }
+
+    private static void testAccountRepositoryOverwritesExisting() {
+        AccountRepository repo = AccountTestFactory.createAccountRepository();
+        repo.save(new Account("liam", "hashV1"));
+        check("hashV1".equals(repo.findAccountByUsername("liam").get().passwordHash()),
+                "Sanity check on initial save");
+
+        repo.save(new Account("liam", "hashV2"));
+        Optional<Account> after = repo.findAccountByUsername("liam");
+        check(after.isPresent(), "Account should still be present after overwrite");
+        check("hashV2".equals(after.get().passwordHash()),
+                "Saving an existing username should overwrite the stored account, not duplicate it");
     }
 
     private static void testNotificationRegistry() {
@@ -305,5 +431,122 @@ public class AccountTest {
 
         reg.unregister("mike");
         check(reg.lookup("mike").isEmpty(), "Registry should remove user after unregister");
+    }
+
+    private static void testNotificationRegistryReRegisterUpdatesAddress() {
+        NotificationRegistry reg = AccountTestFactory.createNotificationRegistry();
+        InetSocketAddress first = new InetSocketAddress("127.0.0.1", 1111);
+        InetSocketAddress second = new InetSocketAddress("127.0.0.1", 2222);
+
+        reg.register("nina", first);
+        reg.register("nina", second);
+
+        Optional<InetSocketAddress> looked = reg.lookup("nina");
+        check(looked.isPresent(), "Registry should find the re-registered user");
+        check(second.equals(looked.get()),
+                "Re-registering (e.g. re-login without an intervening logout) should replace the previous UDP address");
+    }
+
+    // ---------------------- Concurrency tests ----------------------
+    // These exist because GUIDELINES.md/ROADMAP.md require synchronized data
+    // structures for a multithreaded server: a naive check-then-act
+    // implementation can pass every single-threaded test above and still be
+    // unsafe under real concurrent access.
+
+    private static void testConcurrentRegisterSameUsername() throws InterruptedException {
+        AccountRepository repo = AccountTestFactory.createAccountRepository();
+        NotificationRegistry notifReg = AccountTestFactory.createNotificationRegistry();
+        PasswordHasher hasher = AccountTestFactory.createPasswordHasher();
+        TokenSigner signer = AccountTestFactory.createTokenSigner();
+        ServerConfig config = AccountTestFactory.createTestConfig();
+        AccountService service = AccountTestFactory.createAccountService(repo, notifReg, hasher, signer, config);
+
+        int threadCount = 20;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch doneGate = new CountDownLatch(threadCount);
+        AtomicInteger successCount = new AtomicInteger();
+        AtomicInteger duplicateRejectionCount = new AtomicInteger();
+        List<Throwable> unexpected = Collections.synchronizedList(new ArrayList<>());
+
+        for (int i = 0; i < threadCount; i++) {
+            int idx = i;
+            executor.submit(() -> {
+                try {
+                    startGate.await();
+                    // Same username, different password from every thread:
+                    // exactly one of these should ever "win".
+                    service.register("racer", "pw" + idx);
+                    successCount.incrementAndGet();
+                } catch (UsernameAlreadyRegisteredException expected) {
+                    duplicateRejectionCount.incrementAndGet();
+                } catch (Throwable t) {
+                    unexpected.add(t);
+                } finally {
+                    doneGate.countDown();
+                }
+            });
+        }
+
+        startGate.countDown();
+        boolean finished = doneGate.await(10, TimeUnit.SECONDS);
+        executor.shutdownNow();
+
+        check(finished, "All registration threads should complete within the timeout");
+        check(unexpected.isEmpty(), "No unexpected exceptions during concurrent register: " + unexpected);
+        check(successCount.get() == 1,
+                "Exactly one concurrent register(\"racer\", ...) call should succeed, got " + successCount.get()
+                        + " (a check-then-act race would let more than one through)");
+        check(duplicateRejectionCount.get() == threadCount - 1,
+                "Every other concurrent register(\"racer\", ...) call should throw UsernameAlreadyRegisteredException, got "
+                        + duplicateRejectionCount.get());
+        check(repo.existsByUsername("racer"), "Repository should contain the winning account");
+    }
+
+    private static void testConcurrentLoginLogoutSameUser() throws InterruptedException {
+        AccountRepository repo = AccountTestFactory.createAccountRepository();
+        NotificationRegistry notifReg = AccountTestFactory.createNotificationRegistry();
+        PasswordHasher hasher = AccountTestFactory.createPasswordHasher();
+        TokenSigner signer = AccountTestFactory.createTokenSigner();
+        ServerConfig config = AccountTestFactory.createTestConfig();
+        AccountService service = AccountTestFactory.createAccountService(repo, notifReg, hasher, signer, config);
+
+        service.register("oscar", "pw");
+
+        int threadCount = 20;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch doneGate = new CountDownLatch(threadCount);
+        List<Throwable> unexpected = Collections.synchronizedList(new ArrayList<>());
+
+        for (int i = 0; i < threadCount; i++) {
+            int port = 10000 + i;
+            executor.submit(() -> {
+                try {
+                    startGate.await();
+                    LoginData data = service.login("oscar", "pw", port, "127.0.0.1");
+                    service.logout(data.accountToken());
+                } catch (Throwable t) {
+                    unexpected.add(t);
+                } finally {
+                    doneGate.countDown();
+                }
+            });
+        }
+
+        startGate.countDown();
+        boolean finished = doneGate.await(10, TimeUnit.SECONDS);
+        executor.shutdownNow();
+
+        check(finished, "All login/logout threads should complete within the timeout");
+        check(unexpected.isEmpty(),
+                "No exceptions expected from concurrent login/logout of the same user: " + unexpected);
+        // Every thread paired its own login with its own logout. Regardless of
+        // interleaving, once all threads finish there should be no dangling
+        // registration left for "oscar" - this also exercises the registry
+        // under concurrent map mutation without crashing (e.g. no
+        // ConcurrentModificationException).
+        check(notifReg.lookup("oscar").isEmpty(),
+                "NotificationRegistry should end up empty after every concurrent login was followed by its own logout");
     }
 }
