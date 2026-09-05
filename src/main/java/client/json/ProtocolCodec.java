@@ -1,16 +1,22 @@
 package client.json;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import shared.dto.*;
-import java.lang.reflect.Type;
+
 import java.util.*;
 
 public final class ProtocolCodec {
+
     private static final Gson gson = new Gson();
-    private static final Type MAP_TYPE = new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType();
 
     private ProtocolCodec() {}
 
+    // ------------------------------------------------------------------
+    // Request serialization (unchanged – no unchecked casts here)
+    // ------------------------------------------------------------------
     public static String requestToJson(ApiRequest request) {
         Map<String, Object> object = new LinkedHashMap<>();
         object.put("operation", request.getOperation());
@@ -50,93 +56,118 @@ public final class ProtocolCodec {
         return gson.toJson(object);
     }
 
+    // ------------------------------------------------------------------
+    // Request deserialization – now uses JsonObject, no unchecked casts
+    // ------------------------------------------------------------------
     public static ApiRequest requestFromJson(String json) {
-        Map<String, Object> object = gson.fromJson(json, MAP_TYPE);
-        String operation = (String) object.get("operation");
+        JsonObject object = gson.fromJson(json, JsonObject.class);
+        String operation = object.get("operation").getAsString();
+
         return switch (operation) {
-            case "register" -> new RegisterRequest((String) object.get("username"), (String) object.get("psw"));
+            case "register" -> new RegisterRequest(
+                    object.get("username").getAsString(),
+                    object.get("psw").getAsString()
+            );
             case "updateCredentials" -> new UpdateCredentialsRequest(
-                    (String) object.get("oldUsername"),
-                    (String) object.get("newUsername"),
-                    (String) object.get("oldPsw"),
-                    (String) object.get("newPsw")
+                    object.get("oldUsername").getAsString(),
+                    object.get("newUsername").getAsString(),
+                    object.get("oldPsw").getAsString(),
+                    object.get("newPsw").getAsString()
             );
             case "login" -> new LoginRequest(
-                    (String) object.get("username"),
-                    (String) object.get("psw"),
-                    ((Number) object.getOrDefault("udpPort", 0)).intValue()
+                    object.get("username").getAsString(),
+                    object.get("psw").getAsString(),
+                    object.has("udpPort") ? object.get("udpPort").getAsInt() : 0
             );
-            case "logout" -> new LogoutRequest((String) object.get("accountToken"));
+            case "logout" -> new LogoutRequest(object.get("accountToken").getAsString());
             case "submitProposal" -> new SubmitProposalRequest(
-                    (String) object.get("accountToken"),
+                    object.get("accountToken").getAsString(),
                     stringList(object.get("words"))
             );
             case "requestGameInfo" -> new RequestGameInfoRequest(
-                    (String) object.get("accountToken"),
+                    object.get("accountToken").getAsString(),
                     nullableLong(object.get("gameId"))
             );
             case "requestGameStats" -> new RequestGameStatsRequest(
-                    (String) object.get("accountToken"),
+                    object.get("accountToken").getAsString(),
                     nullableLong(object.get("gameId"))
             );
             case "requestLeaderboard" -> new RequestLeaderboardRequest(
-                    (String) object.get("accountToken"),
+                    object.get("accountToken").getAsString(),
                     nullableString(object.get("playerName")),
                     nullableInteger(object.get("topPlayers"))
             );
-            case "requestPlayerStats" -> new RequestPlayerStatsRequest((String) object.get("accountToken"));
+            case "requestPlayerStats" -> new RequestPlayerStatsRequest(object.get("accountToken").getAsString());
             default -> throw new IllegalArgumentException("Unknown operation: " + operation);
         };
     }
 
+    // ------------------------------------------------------------------
+    // Response deserialization – uses JsonObject
+    // ------------------------------------------------------------------
     public static ApiResponse<?> responseFromJson(String json, String expectedOperation) {
-        Map<String, Object> object = gson.fromJson(json, MAP_TYPE);
-        boolean success = (boolean) object.get("success");
-        ApiError error = object.get("error") == null ? null : error((Map<String, Object>) object.get("error"));
-        Object rawData = object.get("data");
+        JsonObject object = gson.fromJson(json, JsonObject.class);
+        boolean success = object.get("success").getAsBoolean();
+
+        ApiError error = null;
+        if (object.has("error") && !object.get("error").isJsonNull()) {
+            error = error(object.getAsJsonObject("error"));
+        }
+
+        JsonElement rawData = object.get("data");
         Object data = success ? decodeData(expectedOperation, rawData) : rawData;
         return new ApiResponse<>(success, error, data);
     }
 
     public static GameInfoData gameInfoFromJson(String json) {
-        Map<String, Object> root = gson.fromJson(json, MAP_TYPE);
-        if (root.containsKey("data")) {
-            return gameInfo((Map<String, Object>) root.get("data"));
+        JsonObject root = gson.fromJson(json, JsonObject.class);
+        if (root.has("data") && !root.get("data").isJsonNull()) {
+            return gameInfo(root.getAsJsonObject("data"));
         }
         return gameInfo(root);
     }
 
-    private static Object decodeData(String operation, Object rawData) {
-        if (rawData == null) return null;
-        Map<String, Object> data = (Map<String, Object>) rawData;
+    // ------------------------------------------------------------------
+    // Private helpers – all accept/return JsonElement/JsonObject
+    // ------------------------------------------------------------------
+    private static Object decodeData(String operation, JsonElement rawData) {
+        if (rawData == null || rawData.isJsonNull()) {
+            return null;
+        }
+        JsonObject data = rawData.getAsJsonObject();
+
         return switch (operation) {
-            case "register" -> new RegisterData((String) data.get("username"));
-            case "login" -> new LoginData((String) data.get("accountToken"));
+            case "register" -> new RegisterData(data.get("username").getAsString());
+            case "login" -> new LoginData(data.get("accountToken").getAsString());
             case "logout" -> new LogoutData();
-            case "updateCredentials" -> new UpdateCredentialsData((String) data.get("newUsername"));
+            case "updateCredentials" -> new UpdateCredentialsData(data.get("newUsername").getAsString());
             case "submitProposal", "requestGameInfo" -> gameInfo(data);
             case "requestGameStats" -> gameStats(data);
             case "requestLeaderboard" -> leaderboard(data);
             case "requestPlayerStats" -> playerStats(data);
-            default -> rawData;
+            default -> rawData;  // fallback: return the raw JsonElement
         };
     }
 
-    private static ApiError error(Map<String, Object> data) {
-        String code = (String) data.get("code");
+    private static ApiError error(JsonObject data) {
+        String code = data.get("code").getAsString();
         ErrorCode errorCode = ErrorCode.valueOf(code);
-        return new ApiError(errorCode, (String) data.get("message"));
+        return new ApiError(errorCode, data.get("message").getAsString());
     }
 
-    private static GameInfoData gameInfo(Map<String, Object> data) {
+    private static GameInfoData gameInfo(JsonObject data) {
         List<String> words = stringList(data.get("words"));
         List<Set<String>> correctGuesses = setList(data.get("correctGuesses"));
         List<Set<String>> wrongGuesses = setList(data.get("wrongGuesses"));
-        List<List<String>> correctGroups = data.get("correctGroups") == null
-                ? null : nestedStringList(data.get("correctGroups"));
+
+        List<List<String>> correctGroups = null;
+        if (data.has("correctGroups") && !data.get("correctGroups").isJsonNull()) {
+            correctGroups = nestedStringList(data.get("correctGroups"));
+        }
+
         return new GameInfoData(
-                longValue(data, "gameId"),
-                longValue(data, "expiresAt"),
+                data.get("gameId").getAsLong(),
+                data.get("expiresAt").getAsLong(),
                 words,
                 correctGuesses,
                 wrongGuesses,
@@ -144,106 +175,119 @@ public final class ProtocolCodec {
         );
     }
 
-    private static GameStatsData gameStats(Map<String, Object> data) {
+    private static GameStatsData gameStats(JsonObject data) {
         return new GameStatsData(
-                longValue(data, "gameId"),
-                (boolean) data.get("completed"),
-                longValue(data, "expiresAt"),
-                integerValue(data.getOrDefault("totalParticipants", 0)),
-                integerValue(data.getOrDefault("activePlayers", 0)),
-                integerValue(data.getOrDefault("completedPlayers", 0)),
-                integerValue(data.getOrDefault("winners", 0)),
-                doubleValue(data.getOrDefault("averageScore", 0.0))
+                data.get("gameId").getAsLong(),
+                data.get("completed").getAsBoolean(),
+                data.get("expiresAt").getAsLong(),
+                data.has("totalParticipants") ? data.get("totalParticipants").getAsInt() : 0,
+                data.has("activePlayers") ? data.get("activePlayers").getAsInt() : 0,
+                data.has("completedPlayers") ? data.get("completedPlayers").getAsInt() : 0,
+                data.has("winners") ? data.get("winners").getAsInt() : 0,
+                data.has("averageScore") ? data.get("averageScore").getAsDouble() : 0.0
         );
     }
 
-    private static LeaderboardData leaderboard(Map<String, Object> data) {
+    private static LeaderboardData leaderboard(JsonObject data) {
         List<LeaderboardEntry> topPlayers = leaderboardEntries(data.get("topPlayers"));
-        LeaderboardEntry requestedPlayer = data.get("requestedPlayer") == null
-                ? null : leaderboardEntry((Map<String, Object>) data.get("requestedPlayer"));
-        return new LeaderboardData(topPlayers, requestedPlayer, integerValue(data.getOrDefault("totalPlayers", 0)));
+
+        LeaderboardEntry requestedPlayer = null;
+        if (data.has("requestedPlayer") && !data.get("requestedPlayer").isJsonNull()) {
+            requestedPlayer = leaderboardEntry(data.getAsJsonObject("requestedPlayer"));
+        }
+
+        int totalPlayers = data.has("totalPlayers") ? data.get("totalPlayers").getAsInt() : 0;
+        return new LeaderboardData(topPlayers, requestedPlayer, totalPlayers);
     }
 
-    private static PlayerStatsData playerStats(Map<String, Object> data) {
+    private static PlayerStatsData playerStats(JsonObject data) {
         Map<Integer, Integer> histogram = new LinkedHashMap<>();
-        Map<String, Object> raw = (Map<String, Object>) data.get("mistakeHistogram");
-        for (Map.Entry<String, Object> entry : raw.entrySet()) {
-            histogram.put(Integer.parseInt(entry.getKey()), integerValue(entry.getValue()));
+        if (data.has("mistakeHistogram") && !data.get("mistakeHistogram").isJsonNull()) {
+            JsonObject raw = data.getAsJsonObject("mistakeHistogram");
+            for (Map.Entry<String, JsonElement> entry : raw.entrySet()) {
+                histogram.put(
+                        Integer.parseInt(entry.getKey()),
+                        entry.getValue().getAsInt()
+                );
+            }
         }
+
         return new PlayerStatsData(
-                integerValue(data.getOrDefault("puzzlesCompleted", 0)),
-                doubleValue(data.getOrDefault("winRate", 0.0)),
-                doubleValue(data.getOrDefault("lossRate", 0.0)),
-                integerValue(data.getOrDefault("currentStreak", 0)),
-                integerValue(data.getOrDefault("maxStreak", 0)),
-                integerValue(data.getOrDefault("perfectPuzzles", 0)),
+                data.has("puzzlesCompleted") ? data.get("puzzlesCompleted").getAsInt() : 0,
+                data.has("winRate") ? data.get("winRate").getAsDouble() : 0.0,
+                data.has("lossRate") ? data.get("lossRate").getAsDouble() : 0.0,
+                data.has("currentStreak") ? data.get("currentStreak").getAsInt() : 0,
+                data.has("maxStreak") ? data.get("maxStreak").getAsInt() : 0,
+                data.has("perfectPuzzles") ? data.get("perfectPuzzles").getAsInt() : 0,
                 histogram
         );
     }
 
-    private static List<LeaderboardEntry> leaderboardEntries(Object value) {
+    private static List<LeaderboardEntry> leaderboardEntries(JsonElement value) {
         List<LeaderboardEntry> result = new ArrayList<>();
-        if (value == null) return result;
-        for (Object entry : (List<?>) value) {
-            result.add(leaderboardEntry((Map<String, Object>) entry));
+        if (value == null || value.isJsonNull()) {
+            return result;
+        }
+        JsonArray array = value.getAsJsonArray();
+        for (JsonElement entry : array) {
+            result.add(leaderboardEntry(entry.getAsJsonObject()));
         }
         return result;
     }
 
-    private static LeaderboardEntry leaderboardEntry(Map<String, Object> data) {
+    private static LeaderboardEntry leaderboardEntry(JsonObject data) {
         return new LeaderboardEntry(
-                (String) data.get("username"),
-                integerValue(data.getOrDefault("score", 0)),
-                integerValue(data.getOrDefault("rank", 0))
+                data.get("username").getAsString(),
+                data.has("score") ? data.get("score").getAsInt() : 0,
+                data.has("rank") ? data.get("rank").getAsInt() : 0
         );
     }
 
-    private static List<Set<String>> setList(Object value) {
+    private static List<Set<String>> setList(JsonElement value) {
         List<Set<String>> result = new ArrayList<>();
-        if (value == null) return result;
-        for (Object item : (List<?>) value) {
+        if (value == null || value.isJsonNull()) {
+            return result;
+        }
+        JsonArray array = value.getAsJsonArray();
+        for (JsonElement item : array) {
             result.add(new LinkedHashSet<>(stringList(item)));
         }
         return result;
     }
 
-    private static List<List<String>> nestedStringList(Object value) {
+    private static List<List<String>> nestedStringList(JsonElement value) {
         List<List<String>> result = new ArrayList<>();
-        for (Object item : (List<?>) value) {
+        if (value == null || value.isJsonNull()) {
+            return result;
+        }
+        JsonArray array = value.getAsJsonArray();
+        for (JsonElement item : array) {
             result.add(stringList(item));
         }
         return result;
     }
 
-    private static List<String> stringList(Object value) {
+    private static List<String> stringList(JsonElement value) {
         List<String> result = new ArrayList<>();
-        for (Object item : (List<?>) value) {
-            result.add((String) item);
+        if (value == null || value.isJsonNull()) {
+            return result;
+        }
+        JsonArray array = value.getAsJsonArray();
+        for (JsonElement item : array) {
+            result.add(item.getAsString());
         }
         return result;
     }
 
-    private static String nullableString(Object value) {
-        return value == null ? null : String.valueOf(value);
+    private static String nullableString(JsonElement value) {
+        return (value == null || value.isJsonNull()) ? null : value.getAsString();
     }
 
-    private static Integer nullableInteger(Object value) {
-        return value == null ? null : integerValue(value);
+    private static Integer nullableInteger(JsonElement value) {
+        return (value == null || value.isJsonNull()) ? null : value.getAsInt();
     }
 
-    private static Long nullableLong(Object value) {
-        return value == null ? null : ((Number) value).longValue();
-    }
-
-    private static int integerValue(Object value) {
-        return ((Number) value).intValue();
-    }
-
-    private static long longValue(Map<String, Object> data, String key) {
-        return ((Number) data.get(key)).longValue();
-    }
-
-    private static double doubleValue(Object value) {
-        return ((Number) value).doubleValue();
+    private static Long nullableLong(JsonElement value) {
+        return (value == null || value.isJsonNull()) ? null : value.getAsLong();
     }
 }
