@@ -8,7 +8,6 @@ import shared.dto.GameInfoData;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class GameTransitionWatcherImpl implements GameTransitionWatcher {
     private final GameClock gameClock;
@@ -16,8 +15,7 @@ public final class GameTransitionWatcherImpl implements GameTransitionWatcher {
     private final ProposalService proposalService;
     private final NotificationService notificationService;
     private final long pollIntervalMillis;
-    private final AtomicBoolean running = new AtomicBoolean(false);
-    private Thread watcherThread;
+    private volatile boolean shouldStop = false;
     private long lastObservedGameId = -1;
 
     public GameTransitionWatcherImpl(GameClock gameClock,
@@ -33,31 +31,15 @@ public final class GameTransitionWatcherImpl implements GameTransitionWatcher {
     }
 
     @Override
-    public void startWatching() {
-        if (running.compareAndSet(false, true)) {
-            watcherThread = new Thread(this, "game-transition-watcher");
-            watcherThread.setDaemon(true);
-            watcherThread.start();
-        }
-    }
-
-    @Override
-    public void stopWatching() {
-        running.set(false);
-        if (watcherThread != null) {
-            watcherThread.interrupt();
-        }
-    }
-
-    @Override
     public void run() {
         long now = System.currentTimeMillis();
         long currentId = gameClock.currentGameId(now);
-        lastObservedGameId = currentId; // don't notify for the game already active at startup
-        while (running.get()) {
+        lastObservedGameId = currentId;
+        while (!shouldStop && !Thread.currentThread().isInterrupted()) {
             try {
                 Thread.sleep(pollIntervalMillis);
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 break;
             }
             now = System.currentTimeMillis();
@@ -69,6 +51,10 @@ public final class GameTransitionWatcherImpl implements GameTransitionWatcher {
         }
     }
 
+    public void stop() {
+        shouldStop = true;
+    }
+
     private void handleGameTransition(long endedGameId) {
         Map<String, GameInfoData> results = new HashMap<>();
         for (PlayerGame pg : playerGameRepository.findByGame(endedGameId)) {
@@ -76,7 +62,7 @@ public final class GameTransitionWatcherImpl implements GameTransitionWatcher {
                 GameInfoData info = proposalService.getGameInfoForUsername(endedGameId, pg.username());
                 results.put(pg.username(), info);
             } catch (Exception e) {
-                // skip players for whom info cannot be retrieved
+                // Log if needed
             }
         }
         notificationService.notifyGameEnd(results);

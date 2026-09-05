@@ -9,24 +9,33 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public record FileGameRepository(String gameDataFile) implements GameRepository {
-    private static final Map<String, Integer> TOTAL_GAMES_CACHE = new ConcurrentHashMap<>();
+/**
+ * Implementation of {@link GameRepository} that loads game word groups from a JSON file.
+ * The file is expected to be an array of objects, each containing a "groups" array.
+ * Each group has a "theme" and a "words" array.
+ * <p>
+ * The total number of games is lazily computed once per repository instance and cached.
+ * This avoids reading the file repeatedly for size checks.
+ */
+public final class FileGameRepository implements GameRepository {
+    private final String gameDataFile;
+    private final AtomicInteger totalGames = new AtomicInteger(-1); // -1 means not loaded yet
+
+    public FileGameRepository(String gameDataFile) {
+        this.gameDataFile = gameDataFile;
+    }
 
     @Override
     public GameWordGroups loadById(long gameId) throws GameNotFoundException {
-        // Reject negative game IDs immediately
         if (gameId < 0) {
             throw new GameNotFoundException(gameId);
         }
-
         int total = getTotalGames();
         if (total == 0) {
             throw new GameNotFoundException(gameId);
         }
-
         int index = (int) (gameId % total);
         try (JsonReader reader = new JsonReader(new FileReader(gameDataFile))) {
             reader.beginArray();
@@ -47,32 +56,52 @@ public record FileGameRepository(String gameDataFile) implements GameRepository 
 
     @Override
     public boolean exists(long gameId) {
-        // Negative IDs never exist
         if (gameId < 0) {
             return false;
         }
-
         int total = getTotalGames();
         if (total == 0) return false;
         int index = (int) (gameId % total);
         return index >= 0 && index < total;
     }
 
+    /**
+     * Lazily loads and caches the total number of games in the file.
+     * Uses an AtomicInteger for visibility and a synchronized block to prevent
+     * multiple threads from reading the file concurrently during initial load.
+     */
     private int getTotalGames() {
-        return TOTAL_GAMES_CACHE.computeIfAbsent(gameDataFile, path -> {
-            try (JsonReader reader = new JsonReader(new FileReader(path))) {
-                reader.beginArray();
-                int count = 0;
-                while (reader.hasNext()) {
-                    reader.skipValue();
-                    count++;
-                }
-                reader.endArray();
-                return count;
-            } catch (IOException e) {
-                throw new RuntimeException("Error reading game data file: " + path, e);
+        int cached = totalGames.get();
+        if (cached >= 0) {
+            return cached;
+        }
+        synchronized (this) {
+            cached = totalGames.get();
+            if (cached >= 0) {
+                return cached;
             }
-        });
+            int count = countGamesInFile();
+            totalGames.set(count);
+            return count;
+        }
+    }
+
+    /**
+     * Counts the number of elements in the JSON array at the top level.
+     */
+    private int countGamesInFile() {
+        try (JsonReader reader = new JsonReader(new FileReader(gameDataFile))) {
+            reader.beginArray();
+            int count = 0;
+            while (reader.hasNext()) {
+                reader.skipValue();
+                count++;
+            }
+            reader.endArray();
+            return count;
+        } catch (IOException e) {
+            throw new RuntimeException("Error reading game data file: " + gameDataFile, e);
+        }
     }
 
     private GameWordGroups parseGameObject(JsonReader reader, long actualGameId) throws IOException {

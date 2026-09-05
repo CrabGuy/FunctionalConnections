@@ -7,13 +7,7 @@ import server.dto.GameWordGroups;
 import server.dto.PlayerGame;
 import server.dto.Proposal;
 import server.dto.WordGroup;
-import server.game.exceptions.GameNotCurrentException;
-import server.game.exceptions.GameNotFoundException;
-import server.game.exceptions.InvalidProposalException;
-import server.game.exceptions.MalformedProposalException;
-import server.game.exceptions.PlayerAlreadyCompletedGameException;
-import server.game.exceptions.UnknownWordsInProposalException;
-import server.game.exceptions.WordsAlreadyGroupedException;
+import server.game.exceptions.*;
 import shared.dto.GameInfoData;
 
 import java.util.ArrayList;
@@ -34,150 +28,137 @@ public record ProposalServiceImpl(
     public GameInfoData submitProposal(String accountToken, long gameId, List<String> words)
             throws InvalidTokenException, InvalidProposalException,
                    GameNotCurrentException, PlayerAlreadyCompletedGameException {
-
         AccountPrincipal principal = accountService.resolve(accountToken);
         String username = principal.username();
-
         long currentGameId = gameClock.currentGameId(System.currentTimeMillis());
         if (gameId != currentGameId) {
             throw new GameNotCurrentException(gameId, currentGameId);
         }
-
         GameWordGroups game = gameRepository.loadById(gameId);
-
         PlayerGame playerGame = playerGameRepository.findOrCreate(username, gameId);
 
-        // Check if player already finished
-        if (isPlayerFinished(playerGame, game.groups())) {
+        GuessesSummary summary = summarize(playerGame, game.groups());
+        if (isPlayerFinished(summary)) {
             throw new PlayerAlreadyCompletedGameException(username, gameId);
         }
 
-        // Validate proposal
-        if (words == null || words.size() != 4) {
-            throw new MalformedProposalException();
-        }
+        validateProposal(words, game, summary);
 
-        if (new HashSet<>(words).size() != words.size()) {
-            throw new MalformedProposalException();
-        }
-
-        Set<String> proposalSet = Set.copyOf(words);
-        Set<String> allWords = getAllWords(game);
-        if (!allWords.containsAll(proposalSet)) {
-            throw new UnknownWordsInProposalException();
-        }
-
-        // Check if any word already grouped correctly
-        List<Set<String>> correctSoFar = extractCorrectGuesses(playerGame.proposals(), game.groups());
-        for (String word : proposalSet) {
-            boolean alreadyGrouped = correctSoFar.stream().anyMatch(set -> set.contains(word));
-            if (alreadyGrouped) {
-                throw new WordsAlreadyGroupedException();
-            }
-        }
-
-        // Add proposal to player's list
-        Proposal newProposal = new Proposal(proposalSet);
+        Proposal newProposal = new Proposal(Set.copyOf(words));
         List<Proposal> updatedProposals = new ArrayList<>(playerGame.proposals());
         updatedProposals.add(newProposal);
         PlayerGame updatedPlayerGame = new PlayerGame(username, gameId, updatedProposals);
         playerGameRepository.save(updatedPlayerGame);
 
-        // Build response
-        boolean includeCorrectGroups = isPlayerFinished(updatedPlayerGame, game.groups())
+        GuessesSummary updatedSummary = summarize(updatedPlayerGame, game.groups());
+        boolean includeCorrectGroups = isPlayerFinished(updatedSummary)
                 || gameClock.isCompleted(gameId, System.currentTimeMillis());
-
         return buildGameInfoData(
                 gameId,
                 gameClock.expiresAt(gameId),
                 shuffleWords(game, gameId),
                 updatedPlayerGame,
                 game.groups(),
-                includeCorrectGroups
+                includeCorrectGroups,
+                updatedSummary
         );
     }
 
     @Override
     public GameInfoData getGameInfo(String accountToken, Long gameId)
             throws InvalidTokenException, GameNotFoundException {
-
         AccountPrincipal principal = accountService.resolve(accountToken);
         String username = principal.username();
-
         long currentGameId = gameClock.currentGameId(System.currentTimeMillis());
         if (gameId != null && gameId > currentGameId) {
             throw new GameNotFoundException(gameId);
         }
-
         long effectiveGameId = (gameId == null)
                 ? gameClock.currentGameId(System.currentTimeMillis())
                 : gameId;
-
         if (!gameRepository.exists(effectiveGameId)) {
             throw new GameNotFoundException(effectiveGameId);
         }
-
         GameWordGroups game = gameRepository.loadById(effectiveGameId);
         PlayerGame playerGame = playerGameRepository.findOrCreate(username, effectiveGameId);
-
-        boolean includeCorrectGroups = isPlayerFinished(playerGame, game.groups())
+        GuessesSummary summary = summarize(playerGame, game.groups());
+        boolean includeCorrectGroups = isPlayerFinished(summary)
                 || gameClock.isCompleted(effectiveGameId, System.currentTimeMillis());
-
         return buildGameInfoData(
                 effectiveGameId,
                 gameClock.expiresAt(effectiveGameId),
                 shuffleWords(game, effectiveGameId),
                 playerGame,
                 game.groups(),
-                includeCorrectGroups
+                includeCorrectGroups,
+                summary
         );
     }
 
     @Override
     public GameInfoData getGameInfoForUsername(long gameId, String username)
             throws GameNotFoundException {
-
         if (!gameRepository.exists(gameId)) {
             throw new GameNotFoundException(gameId);
         }
-
         PlayerGame playerGame = playerGameRepository.findByUsernameAndGame(username, gameId)
                 .orElseThrow(() -> new IllegalStateException(
                         "Player " + username + " has no PlayerGame entry for game " + gameId));
-
         GameWordGroups game = gameRepository.loadById(gameId);
-
-        boolean includeCorrectGroups = isPlayerFinished(playerGame, game.groups())
+        GuessesSummary summary = summarize(playerGame, game.groups());
+        boolean includeCorrectGroups = isPlayerFinished(summary)
                 || gameClock.isCompleted(gameId, System.currentTimeMillis());
-
         return buildGameInfoData(
                 gameId,
                 gameClock.expiresAt(gameId),
                 shuffleWords(game, gameId),
                 playerGame,
                 game.groups(),
-                includeCorrectGroups
+                includeCorrectGroups,
+                summary
         );
     }
 
-    // --- Pure helper methods (static, no side effects) ---
+    // ---------- Helper methods ----------
 
-    private static List<String> shuffleWords(GameWordGroups game, long gameId) {
-        List<String> allWords = game.groups().stream()
-                .flatMap(g -> g.words().stream())
-                .collect(Collectors.toList());
-
-        // Deterministic shuffle using gameId as seed
-        Random random = new Random(gameId);
-        List<String> shuffled = new ArrayList<>(allWords);
-        java.util.Collections.shuffle(shuffled, random);
-        return List.copyOf(shuffled);
+    private void validateProposal(List<String> words, GameWordGroups game, GuessesSummary summary)
+            throws InvalidProposalException {
+        if (words == null || words.size() != 4) {
+            throw new MalformedProposalException();
+        }
+        if (new HashSet<>(words).size() != words.size()) {
+            throw new MalformedProposalException();
+        }
+        Set<String> proposalSet = Set.copyOf(words);
+        Set<String> allWords = getAllWords(game);
+        if (!allWords.containsAll(proposalSet)) {
+            throw new UnknownWordsInProposalException();
+        }
+        for (String word : proposalSet) {
+            boolean alreadyGrouped = summary.correctGuesses().stream().anyMatch(set -> set.contains(word));
+            if (alreadyGrouped) {
+                throw new WordsAlreadyGroupedException();
+            }
+        }
     }
 
-    private static Set<String> getAllWords(GameWordGroups game) {
-        return game.groups().stream()
-                .flatMap(g -> g.words().stream())
-                .collect(Collectors.toUnmodifiableSet());
+    private record GuessesSummary(List<Set<String>> correctGuesses, List<Set<String>> wrongGuesses) {}
+
+    private static GuessesSummary summarize(PlayerGame playerGame, List<WordGroup> groups) {
+        List<Set<String>> correct = new ArrayList<>();
+        List<Set<String>> wrong = new ArrayList<>();
+        for (Proposal proposal : playerGame.proposals()) {
+            if (isCorrectProposal(proposal.words(), groups)) {
+                correct.add(proposal.words());
+            } else {
+                wrong.add(proposal.words());
+            }
+        }
+        return new GuessesSummary(correct, wrong);
+    }
+
+    private static boolean isPlayerFinished(GuessesSummary summary) {
+        return summary.correctGuesses().size() >= 3 || summary.wrongGuesses().size() >= 4;
     }
 
     private static boolean isCorrectProposal(Set<String> proposalWords, List<WordGroup> groups) {
@@ -189,24 +170,20 @@ public record ProposalServiceImpl(
         return false;
     }
 
-    private static List<Set<String>> extractCorrectGuesses(List<Proposal> proposals, List<WordGroup> groups) {
-        return proposals.stream()
-                .filter(p -> isCorrectProposal(p.words(), groups))
-                .map(Proposal::words)
-                .collect(Collectors.toUnmodifiableList());
+    private static Set<String> getAllWords(GameWordGroups game) {
+        return game.groups().stream()
+                .flatMap(g -> g.words().stream())
+                .collect(Collectors.toUnmodifiableSet());
     }
 
-    private static List<Set<String>> extractWrongGuesses(List<Proposal> proposals, List<WordGroup> groups) {
-        return proposals.stream()
-                .filter(p -> !isCorrectProposal(p.words(), groups))
-                .map(Proposal::words)
-                .collect(Collectors.toUnmodifiableList());
-    }
-
-    private static boolean isPlayerFinished(PlayerGame playerGame, List<WordGroup> groups) {
-        int correct = extractCorrectGuesses(playerGame.proposals(), groups).size();
-        int wrong = extractWrongGuesses(playerGame.proposals(), groups).size();
-        return correct >= 3 || wrong >= 4;
+    private static List<String> shuffleWords(GameWordGroups game, long gameId) {
+        List<String> allWords = game.groups().stream()
+                .flatMap(g -> g.words().stream())
+                .collect(Collectors.toList());
+        Random random = new Random(gameId);
+        List<String> shuffled = new ArrayList<>(allWords);
+        java.util.Collections.shuffle(shuffled, random);
+        return List.copyOf(shuffled);
     }
 
     private static GameInfoData buildGameInfoData(
@@ -215,24 +192,21 @@ public record ProposalServiceImpl(
             List<String> shuffledWords,
             PlayerGame playerGame,
             List<WordGroup> groups,
-            boolean includeCorrectGroups
+            boolean includeCorrectGroups,
+            GuessesSummary summary
     ) {
-        List<Set<String>> correct = extractCorrectGuesses(playerGame.proposals(), groups);
-        List<Set<String>> wrong = extractWrongGuesses(playerGame.proposals(), groups);
-
         List<List<String>> correctGroups = null;
         if (includeCorrectGroups) {
             correctGroups = groups.stream()
                     .map(WordGroup::words)
                     .collect(Collectors.toUnmodifiableList());
         }
-
         return new GameInfoData(
                 gameId,
                 expiresAt,
                 shuffledWords,
-                correct,
-                wrong,
+                summary.correctGuesses(),
+                summary.wrongGuesses(),
                 correctGroups
         );
     }

@@ -1,11 +1,10 @@
-/target/*
+/target/**
 .vscode/*
 *.json
 .*ignore
 .*/
 *.md
 *.log
-*.err
 *.txt
 !/docs/**
 *.jar

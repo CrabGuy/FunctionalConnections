@@ -12,6 +12,8 @@ import shared.dto.LeaderboardEntry;
 import java.util.*;
 import java.util.stream.Collectors;
 
+//TODO: need further clarification and check concurrency
+
 public record LeaderboardServiceImpl(
         AccountService accountService,
         PlayerGameRepository playerGameRepository,
@@ -23,35 +25,41 @@ public record LeaderboardServiceImpl(
             throws InvalidTokenException {
         accountService.resolve(accountToken);
 
+        // Per-request cache for game word groups to avoid repeated file reads
+        Map<Long, GameWordGroups> gameCache = new HashMap<>();
+
         Set<String> allUsernames = playerGameRepository.findAllUsernames();
         List<LeaderboardEntry> allEntries = new ArrayList<>();
-
         for (String username : allUsernames) {
             List<PlayerGame> games = playerGameRepository.findPlayerGameByUsername(username);
             int totalScore = 0;
-
             for (PlayerGame pg : games) {
                 long gameId = pg.gameId();
                 if (!gameRepository.exists(gameId)) {
                     continue;
                 }
-                GameWordGroups gameWordGroups = gameRepository.loadById(gameId);
+                GameWordGroups gameWordGroups = gameCache.computeIfAbsent(gameId, id -> {
+                    try {
+                        return gameRepository.loadById(id);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                });
+                if (gameWordGroups == null) {
+                    continue;
+                }
                 List<Set<String>> correctGroups = gameWordGroups.groups().stream()
                         .map(group -> Set.copyOf(group.words()))
                         .collect(Collectors.toList());
-
                 totalScore += ScoreCalculator.score(pg, correctGroups);
             }
-
-            allEntries.add(new LeaderboardEntry(username, totalScore, 0)); // rank filled later
+            allEntries.add(new LeaderboardEntry(username, totalScore, 0));
         }
 
-        // Sort by score descending, then username ascending
         allEntries.sort(Comparator
                 .comparingInt(LeaderboardEntry::score).reversed()
                 .thenComparing(LeaderboardEntry::username));
 
-        // Assign ranks
         List<LeaderboardEntry> rankedEntries = new ArrayList<>();
         for (int i = 0; i < allEntries.size(); i++) {
             LeaderboardEntry e = allEntries.get(i);
@@ -67,7 +75,6 @@ public record LeaderboardServiceImpl(
                 }
             }
         }
-
 
         List<LeaderboardEntry> top;
         if (topK == null) {

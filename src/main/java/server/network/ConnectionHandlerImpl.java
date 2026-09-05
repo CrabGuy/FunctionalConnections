@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonElement;
 import shared.dto.*;
 import java.io.*;
+import java.net.InetSocketAddress;
 import java.nio.channels.Channels;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
@@ -31,12 +32,12 @@ public final class ConnectionHandlerImpl implements ConnectionHandler {
             throw new IllegalStateException("bind() must be called before run()");
         }
         try (BufferedReader reader = new BufferedReader(Channels.newReader(clientChannel, "UTF-8"));
-             PrintWriter writer = new PrintWriter(Channels.newWriter(clientChannel, "UTF-8"), true)) {
-
+            PrintWriter writer = new PrintWriter(Channels.newWriter(clientChannel, "UTF-8"), true)) {
             String line;
             while ((line = reader.readLine()) != null) {
                 ApiRequest request = parseRequest(line);
-                ApiResponse<?> response = dispatcher.dispatch(request);
+                ApiResponse<?> response = dispatcher.dispatch(request,
+                        (InetSocketAddress) clientChannel.getRemoteAddress());
                 writer.println(gson.toJson(response));
             }
         } catch (Exception e) {
@@ -50,7 +51,6 @@ public final class ConnectionHandlerImpl implements ConnectionHandler {
             } catch (IOException ignored) {}
         }
     }
-
     /**
      * Parses a JSON string into the correct ApiRequest subtype based on the "operation" field.
      */

@@ -22,8 +22,6 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Main entry point for the Connections game server.
@@ -110,10 +108,9 @@ public class ServerMain {
 
         NotificationService notificationService = new NotificationServiceImpl(notificationRegistry, gson);
 
-        InetSocketAddress serverAddress = new InetSocketAddress(port);
         RequestDispatcher dispatcher = new RequestDispatcherImpl(
                 accountService, proposalService, statsService, leaderboardService,
-                gameClock, serverAddress);
+                gameClock);
 
         // 5. Persistence
         Path storagePath = Path.of(storageDirectory);
@@ -126,6 +123,7 @@ public class ServerMain {
         }
 
         // 6. NIO server socket
+        InetSocketAddress serverAddress = new InetSocketAddress(port);
         ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
         serverSocketChannel.bind(serverAddress);
         serverSocketChannel.configureBlocking(false);
@@ -138,32 +136,20 @@ public class ServerMain {
 
         // 8. Background tasks
         // Game transition watcher
-        Thread transitionWatcher = new Thread(new GameTransitionWatcherImpl(
+        GameTransitionWatcher watcher = new GameTransitionWatcherImpl(
                 gameClock, playerGameRepo, proposalService, notificationService,
-                transitionPollMillis),
-                "game-transition-watcher");
-        transitionWatcher.setDaemon(true);
-        transitionWatcher.start();
+                transitionPollMillis);
+        Thread transitionWatcherThread = new Thread(watcher, "game-transition-watcher");
+        transitionWatcherThread.setDaemon(true);
+        transitionWatcherThread.start();
 
-        // Periodic snapshot scheduler
-        ScheduledExecutorService snapshotScheduler = Executors.newSingleThreadScheduledExecutor();
-        snapshotScheduler.scheduleAtFixedRate(
-                () -> {
-                    try {
-                        persistence.saveSnapshot(accountRepo, playerGameRepo);
-                    } catch (IOException e) {
-                        System.err.println("Snapshot save failed: " + e.getMessage());
-                    }
-                },
-                snapshotIntervalMillis,
-                snapshotIntervalMillis,
-                TimeUnit.MILLISECONDS);
+        persistence.schedulePeriodicSnapshot(accountRepo, playerGameRepo);
 
         // 9. Shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Shutting down...");
             try {
-                snapshotScheduler.shutdownNow();
+                persistence.shutdown();
                 connectionPool.shutdownNow();
                 serverSocketChannel.close();
                 persistence.saveSnapshot(accountRepo, playerGameRepo);

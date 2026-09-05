@@ -17,24 +17,21 @@ public final class RequestDispatcherImpl implements RequestDispatcher {
     private final StatsService statsService;
     private final LeaderboardService leaderboardService;
     private final GameClock gameClock;
-    private final InetSocketAddress remoteAddress;
 
     public RequestDispatcherImpl(AccountService accountService,
                                  ProposalService proposalService,
                                  StatsService statsService,
                                  LeaderboardService leaderboardService,
-                                 GameClock gameClock,
-                                 InetSocketAddress remoteAddress) {
+                                 GameClock gameClock) {
         this.accountService = accountService;
         this.proposalService = proposalService;
         this.statsService = statsService;
         this.leaderboardService = leaderboardService;
         this.gameClock = gameClock;
-        this.remoteAddress = remoteAddress;
     }
 
     @Override
-    public ApiResponse<?> dispatch(ApiRequest request) {
+    public ApiResponse<?> dispatch(ApiRequest request, InetSocketAddress remoteAddress) {
         try {
             return switch (request) {
                 case RegisterRequest req -> success(accountService.register(req.username(), req.password()));

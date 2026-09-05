@@ -6,7 +6,6 @@ import server.dto.AccountPrincipal;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.Base64;
 
 /**
@@ -35,31 +34,25 @@ public record JwtTokenSigner(String secret) implements TokenSigner {
             if (parts.length != 3) {
                 throw new InvalidTokenException("Malformed token");
             }
-
             String header = parts[0];
             String payload = parts[1];
             String signature = parts[2];
-
-            // Verify signature
             String signingInput = header + "." + payload;
             byte[] expectedSignature = hmacSha256(signingInput);
             byte[] providedSignature = base64UrlDecode(signature);
             if (!constantTimeEquals(expectedSignature, providedSignature)) {
                 throw new InvalidTokenException("Invalid signature");
             }
-
-            // Decode payload and check expiration
             String payloadJson = new String(base64UrlDecode(payload), StandardCharsets.UTF_8);
             String sub = extractJsonString(payloadJson, "sub");
             long exp = extractJsonLong(payloadJson, "exp");
             if (sub == null || exp == 0) {
                 throw new InvalidTokenException("Missing required claims");
             }
-
-            if (exp <= Instant.now().getEpochSecond()) {
+            // Compare using milliseconds (System.currentTimeMillis())
+            if (exp <= System.currentTimeMillis()) {
                 throw new InvalidTokenException("Token expired");
             }
-
             return new AccountPrincipal(sub, exp);
         } catch (InvalidTokenException e) {
             throw e;
@@ -67,7 +60,6 @@ public record JwtTokenSigner(String secret) implements TokenSigner {
             throw new InvalidTokenException("Token verification failed: " + e.getMessage());
         }
     }
-
     private byte[] hmacSha256(String data) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");

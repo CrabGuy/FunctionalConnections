@@ -54,7 +54,7 @@ public record StatsServiceImpl(
 
         for (PlayerGame pg : entries) {
             ScoreCalculator.Outcome outcome =
-                    ScoreCalculator.outcome(pg, correctGroups, gameCompleted);
+                    ScoreCalculator.outcome(pg, correctGroups);
 
             totalScore += ScoreCalculator.score(pg, correctGroups);
 
@@ -95,7 +95,6 @@ public record StatsServiceImpl(
         // Sort by game id (chronological order)
         games.sort(Comparator.comparingLong(PlayerGame::gameId));
 
-        long now = System.currentTimeMillis();
         int puzzlesCompleted = 0;
         int wins = 0;
         int losses = 0;
@@ -118,9 +117,8 @@ public record StatsServiceImpl(
                     .map(group -> Set.copyOf(group.words()))
                     .collect(Collectors.toList());
 
-            boolean gameCompleted = gameClock.isCompleted(gameId, now);
             ScoreCalculator.Outcome outcome =
-                    ScoreCalculator.outcome(pg, correctGroups, gameCompleted);
+                    ScoreCalculator.outcome(pg, correctGroups);
 
             if (outcome == ScoreCalculator.Outcome.INCOMPLETE) {
                 continue; // skip incomplete games for completed stats
