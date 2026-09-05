@@ -14,8 +14,15 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Test runner for Proposal submission & per-player game state slice (Slice C).
@@ -39,10 +46,28 @@ public class SubmissionsTest {
         runTest("testSubmitProposalMalformed", SubmissionsTest::testSubmitProposalMalformed);
         runTest("testSubmitProposalUnknownWords", SubmissionsTest::testSubmitProposalUnknownWords);
         runTest("testSubmitProposalAlreadyGrouped", SubmissionsTest::testSubmitProposalAlreadyGrouped);
+        runTest("testSubmitProposalPartialOverlapAlreadyGrouped",
+                SubmissionsTest::testSubmitProposalPartialOverlapAlreadyGrouped);
+        runTest("testSubmitProposalDuplicateWordsWithinProposal",
+                SubmissionsTest::testSubmitProposalDuplicateWordsWithinProposal);
         runTest("testSubmitProposalInvalidToken", SubmissionsTest::testSubmitProposalInvalidToken);
+        runTest("testSubmitProposalAfterFourMistakesThrows",
+                SubmissionsTest::testSubmitProposalAfterFourMistakesThrows);
+        runTest("testSubmitProposalAfterThreeCorrectWinsAndBlocksFurtherSubmissions",
+                SubmissionsTest::testSubmitProposalAfterThreeCorrectWinsAndBlocksFurtherSubmissions);
         runTest("testGetGameInfoOngoing", SubmissionsTest::testGetGameInfoOngoing);
         runTest("testGetGameInfoCompleted", SubmissionsTest::testGetGameInfoCompleted);
         runTest("testGetGameInfoInvalidGameId", SubmissionsTest::testGetGameInfoInvalidGameId);
+        runTest("testGetGameInfoFutureGameIdThrows", SubmissionsTest::testGetGameInfoFutureGameIdThrows);
+        runTest("testGetGameInfoWordsShuffledConsistently", SubmissionsTest::testGetGameInfoWordsShuffledConsistently);
+        runTest("testGetGameInfoWordsShuffledDoesNotRevealGroupOrder",
+                SubmissionsTest::testGetGameInfoWordsShuffledDoesNotRevealGroupOrder);
+        runTest("testGetGameInfoAutoJoinsPlayer", SubmissionsTest::testGetGameInfoAutoJoinsPlayer);
+        runTest("testProposalsAreIsolatedPerPlayer", SubmissionsTest::testProposalsAreIsolatedPerPlayer);
+        runTest("testConcurrentFindOrCreateSamePlayerGame",
+                SubmissionsTest::testConcurrentFindOrCreateSamePlayerGame);
+        runTest("testConcurrentSubmitProposalTwoDistinctPlayers",
+                SubmissionsTest::testConcurrentSubmitProposalTwoDistinctPlayers);
 
         System.out.println("\n-----------------------------------");
         System.out.println("Tests passed: " + passed);
@@ -222,6 +247,11 @@ public class SubmissionsTest {
             assertThrows(MalformedProposalException.class,
                     () -> service.submitProposal("token1", 0L, List.of("red", "blue", "green")),
                     "Submitting 3 words should throw MalformedProposalException");
+
+            // Requirements.md: malformed proposals must NOT count as mistakes.
+            GameInfoData info = service.getGameInfo("token1", 0L);
+            check(info.wrongGuesses().isEmpty(),
+                    "A malformed (wrong word count) proposal must not increment the mistake count");
         } finally {
             new File(ctx.gameFile()).delete();
         }
@@ -234,6 +264,10 @@ public class SubmissionsTest {
             assertThrows(UnknownWordsInProposalException.class,
                     () -> service.submitProposal("token1", 0L, List.of("red", "blue", "green", "purple")),
                     "Submitting a word not in the game should throw UnknownWordsInProposalException");
+
+            GameInfoData info = service.getGameInfo("token1", 0L);
+            check(info.wrongGuesses().isEmpty(),
+                    "A proposal referencing a word outside the game must not increment the mistake count");
         } finally {
             new File(ctx.gameFile()).delete();
         }
@@ -249,6 +283,54 @@ public class SubmissionsTest {
             assertThrows(WordsAlreadyGroupedException.class,
                     () -> service.submitProposal("token1", 0L, List.of("red", "blue", "green", "yellow")),
                     "Submitting already grouped words should throw WordsAlreadyGroupedException");
+
+            GameInfoData info = service.getGameInfo("token1", 0L);
+            check(info.correctGuesses().size() == 1,
+                    "Resubmitting an already-solved group must not add a second correct guess");
+            check(info.wrongGuesses().isEmpty(),
+                    "Resubmitting an already-solved group must not count as a mistake");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    private static void testSubmitProposalPartialOverlapAlreadyGrouped() throws IOException {
+        TestContext ctx = createTestContext();
+        try {
+            ProposalService service = ctx.proposalService();
+            // Solve Colors first, so "red" becomes an already-grouped word.
+            service.submitProposal("token1", 0L, List.of("red", "blue", "green", "yellow"));
+
+            // Mix one already-grouped word ("red") with three fresh, ungrouped
+            // words from a different theme. This must be rejected the same way
+            // as resubmitting a whole solved group - it references a claimed
+            // word - and must not be silently scored as a wrong guess.
+            assertThrows(WordsAlreadyGroupedException.class,
+                    () -> service.submitProposal("token1", 0L, List.of("red", "apple", "banana", "orange")),
+                    "A proposal mixing an already-grouped word with fresh words should throw WordsAlreadyGroupedException");
+
+            GameInfoData info = service.getGameInfo("token1", 0L);
+            check(info.wrongGuesses().isEmpty(),
+                    "A partial-overlap-with-already-grouped proposal must not count as a mistake");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    private static void testSubmitProposalDuplicateWordsWithinProposal() throws IOException {
+        TestContext ctx = createTestContext();
+        try {
+            ProposalService service = ctx.proposalService();
+            // Only 3 distinct words repeated to fill 4 slots - not a valid
+            // 4-distinct-word proposal, so this should be malformed rather than
+            // silently treated as a (wrong) 3-word guess.
+            assertThrows(MalformedProposalException.class,
+                    () -> service.submitProposal("token1", 0L, List.of("red", "red", "blue", "green")),
+                    "A proposal with a repeated word should throw MalformedProposalException");
+
+            GameInfoData info = service.getGameInfo("token1", 0L);
+            check(info.wrongGuesses().isEmpty(),
+                    "A proposal with duplicate words must not count as a mistake");
         } finally {
             new File(ctx.gameFile()).delete();
         }
@@ -261,6 +343,61 @@ public class SubmissionsTest {
             assertThrows(InvalidTokenException.class,
                     () -> service.submitProposal("invalid_token", 0L, List.of("red", "blue", "green", "yellow")),
                     "Invalid token should throw InvalidTokenException");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    private static void testSubmitProposalAfterFourMistakesThrows() throws IOException {
+        TestContext ctx = createTestContext();
+        try {
+            ProposalService service = ctx.proposalService();
+            // 4 distinct wrong-but-valid, not-yet-grouped proposals.
+            service.submitProposal("token1", 0L, List.of("red", "blue", "green", "apple"));
+            service.submitProposal("token1", 0L, List.of("yellow", "banana", "orange", "grape"));
+            service.submitProposal("token1", 0L, List.of("cat", "dog", "bird", "circle"));
+            service.submitProposal("token1", 0L, List.of("fish", "square", "triangle", "star"));
+
+            GameInfoData afterFour = service.getGameInfo("token1", 0L);
+            check(afterFour.wrongGuesses().size() == 4, "Player should have exactly 4 wrong guesses");
+
+            // Requirements.md: max 4 wrong proposals per game -> player has lost.
+            // A 5th attempt, even with a genuinely correct group, must be rejected.
+            assertThrows(PlayerAlreadyCompletedGameException.class,
+                    () -> service.submitProposal("token1", 0L, List.of("red", "blue", "green", "yellow")),
+                    "Submitting a proposal after 4 mistakes should throw PlayerAlreadyCompletedGameException");
+
+            GameInfoData after = service.getGameInfo("token1", 0L);
+            check(after.wrongGuesses().size() == 4, "Mistake count must not change after the game is already lost");
+            check(after.correctGuesses().isEmpty(),
+                    "The rejected post-loss proposal must not be scored as correct either");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    private static void testSubmitProposalAfterThreeCorrectWinsAndBlocksFurtherSubmissions() throws IOException {
+        TestContext ctx = createTestContext();
+        try {
+            ProposalService service = ctx.proposalService();
+            service.submitProposal("token1", 0L, List.of("red", "blue", "green", "yellow"));
+            service.submitProposal("token1", 0L, List.of("apple", "banana", "orange", "grape"));
+            service.submitProposal("token1", 0L, List.of("cat", "dog", "bird", "fish"));
+
+            // Clarified design decision: 3 correct groups = won & completed.
+            // The 4th group is implied - the player does NOT need to (and
+            // should not be able to) submit it or anything else afterward.
+            GameInfoData afterThree = service.getGameInfo("token1", 0L);
+            check(afterThree.correctGuesses().size() == 3,
+                    "Exactly 3 correct guesses should be recorded - the 4th group is implied, not auto-added");
+
+            assertThrows(PlayerAlreadyCompletedGameException.class,
+                    () -> service.submitProposal("token1", 0L, List.of("circle", "square", "triangle", "star")),
+                    "Submitting the (implied) 4th group after winning should throw PlayerAlreadyCompletedGameException");
+
+            GameInfoData after = service.getGameInfo("token1", 0L);
+            check(after.correctGuesses().size() == 3,
+                    "Correct-guess count must stay at 3 after the win; the 4th group is never explicitly added");
         } finally {
             new File(ctx.gameFile()).delete();
         }
@@ -316,6 +453,251 @@ public class SubmissionsTest {
             assertThrows(GameNotFoundException.class,
                     () -> service.getGameInfo("token1", -1L),
                     "Requesting a negative game ID should throw GameNotFoundException");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    private static void testGetGameInfoFutureGameIdThrows() throws IOException {
+        // Clarified design decision: a gameId that is arithmetically valid
+        // (loadById could compute it via modulo) but hasn't been reached yet
+        // by the clock is still GameNotFoundException - "could be calculated
+        // but doesn't exist yet".
+        TestContext ctx = createTestContext();
+        try {
+            ProposalService service = ctx.proposalService();
+            // This context's clock uses Long.MAX_VALUE duration, so
+            // currentGameId(now) is always 0 - gameId 1 is therefore always
+            // "in the future" relative to it.
+            assertThrows(GameNotFoundException.class,
+                    () -> service.getGameInfo("token1", 1L),
+                    "Requesting a game ID beyond the current game should throw GameNotFoundException");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    private static void testGetGameInfoWordsShuffledConsistently() throws IOException {
+        TestContext ctx = createTestContext();
+        try {
+            ProposalService service = ctx.proposalService();
+            // NOTES.md: words are shuffled using gameId as seed, so repeated
+            // requests for the same game must return the same order.
+            GameInfoData first = service.getGameInfo("token1", 0L);
+            GameInfoData second = service.getGameInfo("token1", 0L);
+            check(first.words().equals(second.words()),
+                    "Word order must be deterministic/consistent across repeated requests for the same gameId");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    private static void testGetGameInfoWordsShuffledDoesNotRevealGroupOrder() throws IOException {
+        TestContext ctx = createTestContext();
+        try {
+            ProposalService service = ctx.proposalService();
+            GameInfoData info = service.getGameInfo("token1", 0L);
+
+            check(info.words().size() == 16, "There should be 16 words");
+            check(new HashSet<>(info.words()).equals(Set.of(
+                            "red", "blue", "green", "yellow",
+                            "apple", "banana", "orange", "grape",
+                            "cat", "dog", "bird", "fish",
+                            "circle", "square", "triangle", "star")),
+                    "Shuffled words must be exactly the 16 game words, no more, no less, no duplicates");
+
+            // Requirements.md: the server must send words "without revealing
+            // groupings". If the words come back in exactly the same order as
+            // the four groups are defined in the data file, the grouping is
+            // trivially visible and the shuffle isn't doing its job.
+            List<String> unshuffledGroupOrder = List.of(
+                    "red", "blue", "green", "yellow",
+                    "apple", "banana", "orange", "grape",
+                    "cat", "dog", "bird", "fish",
+                    "circle", "square", "triangle", "star");
+            check(!info.words().equals(unshuffledGroupOrder),
+                    "Word order must not simply mirror the group definitions verbatim, or it reveals the groupings");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    private static void testGetGameInfoAutoJoinsPlayer() throws IOException {
+        TestContext ctx = createTestContext();
+        try {
+            // NOTES.md: any operation that gives a player information about the
+            // game (including just requesting game info) should be treated as
+            // "playing", creating an empty PlayerGame entry - not just submitProposal.
+            check(ctx.playerGames().findByGame(0L).isEmpty(),
+                    "Sanity check: no players should be tracked for game 0 before anyone interacts with it");
+
+            ctx.proposalService().getGameInfo("token1", 0L);
+
+            List<PlayerGame> playersInGame = ctx.playerGames().findByGame(0L);
+            check(playersInGame.size() == 1,
+                    "Requesting game info for a brand-new player should create an (empty) PlayerGame entry");
+            check(playersInGame.get(0).proposals().isEmpty(),
+                    "The auto-created entry should have no proposals yet - viewing isn't guessing");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    private static void testProposalsAreIsolatedPerPlayer() throws IOException {
+        // token1 -> alice, token2 -> bob (per SubmissionsTestFactory's stub).
+        TestContext ctx = createTestContext();
+        try {
+            ProposalService service = ctx.proposalService();
+
+            // alice solves Colors and gets one wrong guess.
+            service.submitProposal("token1", 0L, List.of("red", "blue", "green", "yellow"));
+            service.submitProposal("token1", 0L, List.of("cat", "dog", "bird", "circle"));
+
+            // bob has done nothing yet in the same game.
+            GameInfoData bobInfo = service.getGameInfo("token2", 0L);
+            check(bobInfo.correctGuesses().isEmpty(),
+                    "bob's correct guesses must not include alice's solved group");
+            check(bobInfo.wrongGuesses().isEmpty(),
+                    "bob's wrong guesses must not include alice's mistake");
+
+            // bob solves Fruits independently.
+            service.submitProposal("token2", 0L, List.of("apple", "banana", "orange", "grape"));
+
+            GameInfoData aliceInfo = service.getGameInfo("token1", 0L);
+            check(aliceInfo.correctGuesses().size() == 1,
+                    "alice's correct guesses must still only reflect her own group (Colors), not bob's (Fruits)");
+            check(aliceInfo.wrongGuesses().size() == 1, "alice's mistake count must be unaffected by bob's actions");
+
+            GameInfoData bobInfoAfter = service.getGameInfo("token2", 0L);
+            check(bobInfoAfter.correctGuesses().size() == 1,
+                    "bob's correct guesses must reflect only his own group (Fruits)");
+            check(bobInfoAfter.wrongGuesses().isEmpty(), "bob has made no wrong guesses of his own");
+
+            // Both players should be tracked separately in the repository.
+            List<PlayerGame> playersInGame = ctx.playerGames().findByGame(0L);
+            check(playersInGame.size() == 2, "Both alice and bob should have independent PlayerGame entries");
+        } finally {
+            new File(ctx.gameFile()).delete();
+        }
+    }
+
+    // ---------------------- Concurrency tests ----------------------
+    // Mirrors the same check-then-act concern raised for AccountRepository:
+    // findOrCreate must not create duplicate PlayerGame entries for the same
+    // (username, gameId) pair when called concurrently.
+
+    private static void testConcurrentFindOrCreateSamePlayerGame() throws InterruptedException {
+        PlayerGameRepository repo = SubmissionsTestFactory.createPlayerGameRepository();
+
+        int threadCount = 20;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch doneGate = new CountDownLatch(threadCount);
+        List<PlayerGame> results = Collections.synchronizedList(new ArrayList<>());
+        List<Throwable> unexpected = Collections.synchronizedList(new ArrayList<>());
+
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    startGate.await();
+                    results.add(repo.findOrCreate("dana", 5L));
+                } catch (Throwable t) {
+                    unexpected.add(t);
+                } finally {
+                    doneGate.countDown();
+                }
+            });
+        }
+
+        startGate.countDown();
+        boolean finished = doneGate.await(10, TimeUnit.SECONDS);
+        executor.shutdownNow();
+
+        check(finished, "All findOrCreate threads should complete within the timeout");
+        check(unexpected.isEmpty(), "No exceptions expected from concurrent findOrCreate: " + unexpected);
+        check(results.size() == threadCount, "Every thread should get a result");
+
+        PlayerGame first = results.get(0);
+        for (PlayerGame pg : results) {
+            check(pg == first,
+                    "Every concurrent findOrCreate(\"dana\", 5L) call should return the SAME instance "
+                            + "(a check-then-act race would create duplicates)");
+        }
+
+        List<PlayerGame> stored = repo.findByGame(5L);
+        check(stored.size() == 1,
+                "Repository should end up with exactly one PlayerGame entry for (dana, 5), got " + stored.size());
+    }
+
+    private static void testConcurrentSubmitProposalTwoDistinctPlayers() throws IOException, InterruptedException {
+        // token1 -> alice, token2 -> bob. Both hammer the same game
+        // concurrently with different (correct) proposals, exercising real
+        // concurrent access through ProposalService rather than just the
+        // repository directly.
+        TestContext ctx = createTestContext();
+        try {
+            ProposalService service = ctx.proposalService();
+
+            int repetitions = 15;
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+            CountDownLatch startGate = new CountDownLatch(1);
+            CountDownLatch doneGate = new CountDownLatch(2);
+            List<Throwable> unexpected = Collections.synchronizedList(new ArrayList<>());
+
+            executor.submit(() -> {
+                try {
+                    startGate.await();
+                    for (int i = 0; i < repetitions; i++) {
+                        // alice repeatedly re-attempts her own already-solved
+                        // group; only the first should count, the rest should
+                        // throw WordsAlreadyGroupedException (swallowed here -
+                        // we're only checking for crashes/corruption).
+                        try {
+                            service.submitProposal("token1", 0L, List.of("red", "blue", "green", "yellow"));
+                        } catch (WordsAlreadyGroupedException expected) {
+                            // fine, expected after the first success
+                        }
+                    }
+                } catch (Throwable t) {
+                    unexpected.add(t);
+                } finally {
+                    doneGate.countDown();
+                }
+            });
+
+            executor.submit(() -> {
+                try {
+                    startGate.await();
+                    for (int i = 0; i < repetitions; i++) {
+                        try {
+                            service.submitProposal("token2", 0L, List.of("apple", "banana", "orange", "grape"));
+                        } catch (WordsAlreadyGroupedException expected) {
+                            // fine, expected after the first success
+                        }
+                    }
+                } catch (Throwable t) {
+                    unexpected.add(t);
+                } finally {
+                    doneGate.countDown();
+                }
+            });
+
+            startGate.countDown();
+            boolean finished = doneGate.await(10, TimeUnit.SECONDS);
+            executor.shutdownNow();
+
+            check(finished, "Both player threads should complete within the timeout");
+            check(unexpected.isEmpty(), "No unexpected exceptions from concurrent two-player submissions: " + unexpected);
+
+            GameInfoData aliceInfo = service.getGameInfo("token1", 0L);
+            check(aliceInfo.correctGuesses().size() == 1,
+                    "alice should have exactly 1 correct guess despite repeated concurrent resubmissions, got "
+                            + aliceInfo.correctGuesses().size());
+
+            GameInfoData bobInfo = service.getGameInfo("token2", 0L);
+            check(bobInfo.correctGuesses().size() == 1,
+                    "bob should have exactly 1 correct guess despite repeated concurrent resubmissions, got "
+                            + bobInfo.correctGuesses().size());
         } finally {
             new File(ctx.gameFile()).delete();
         }

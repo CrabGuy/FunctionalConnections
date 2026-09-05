@@ -17,6 +17,7 @@ import server.game.exceptions.WordsAlreadyGroupedException;
 import shared.dto.GameInfoData;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
@@ -53,6 +54,10 @@ public record ProposalServiceImpl(
 
         // Validate proposal
         if (words == null || words.size() != 4) {
+            throw new MalformedProposalException();
+        }
+
+        if (new HashSet<>(words).size() != words.size()) {
             throw new MalformedProposalException();
         }
 
@@ -98,6 +103,11 @@ public record ProposalServiceImpl(
 
         AccountPrincipal principal = accountService.resolve(accountToken);
         String username = principal.username();
+
+        long currentGameId = gameClock.currentGameId(System.currentTimeMillis());
+        if (gameId != null && gameId > currentGameId) {
+            throw new GameNotFoundException(gameId);
+        }
 
         long effectiveGameId = (gameId == null)
                 ? gameClock.currentGameId(System.currentTimeMillis())

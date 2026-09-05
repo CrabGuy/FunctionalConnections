@@ -31,6 +31,11 @@ public class GameCatalogTest {
         runTest("testGameRepositoryLoadWithModulo", GameCatalogTest::testGameRepositoryLoadWithModulo);
         runTest("testGameRepositoryExists", GameCatalogTest::testGameRepositoryExists);
         runTest("testGameRepositoryLoadEmptyFileThrows", GameCatalogTest::testGameRepositoryLoadEmptyFileThrows);
+        runTest("testGameRepositoryNegativeGameIdThrows", GameCatalogTest::testGameRepositoryNegativeGameIdThrows);
+        runTest("testGameRepositoryIndexesByArrayPositionNotGameIdField",
+                GameCatalogTest::testGameRepositoryIndexesByArrayPositionNotGameIdField);
+        runTest("testGameRepositoryMissingFileThrows", GameCatalogTest::testGameRepositoryMissingFileThrows);
+        runTest("testGameRepositoryCorruptJsonThrows", GameCatalogTest::testGameRepositoryCorruptJsonThrows);
 
         System.out.println("\n-----------------------------------");
         System.out.println("Tests passed: " + passed);
@@ -192,6 +197,96 @@ public class GameCatalogTest {
                     () -> repo.loadById(0L),
                     "Loading from empty file should throw GameNotFoundException");
             check(!repo.exists(0L), "exists should be false when file is empty");
+        } finally {
+            new File(tempFile.toString()).delete();
+        }
+    }
+
+    private static void testGameRepositoryNegativeGameIdThrows() throws IOException {
+        String filePath = createTempGameDataFile();
+        try {
+            GameRepository repo = GameCatalogTestFactory.createGameRepository(filePath);
+            // Java's % returns negative results for negative operands, so a naive
+            // "index % totalGames" implementation could throw
+            // ArrayIndexOutOfBoundsException instead of a domain exception here.
+            check(!repo.exists(-1L), "Negative gameId should never be reported as existing");
+            assertThrows(GameNotFoundException.class,
+                    () -> repo.loadById(-1L),
+                    "Loading a negative gameId should throw GameNotFoundException, not an unchecked indexing error");
+        } finally {
+            new File(filePath).delete();
+        }
+    }
+
+    private static void testGameRepositoryIndexesByArrayPositionNotGameIdField() throws IOException {
+        // The stored "gameId" field is deliberately out of step with array
+        // position (index 0 claims to be gameId 99, index 1 claims gameId 5).
+        // Confirmed behavior: loadById(i) must return the i-th array entry
+        // regardless of what its own "gameId" field says.
+        String json = """
+                [
+                  {
+                    "gameId": 99,
+                    "groups": [
+                      {"theme": "Colors", "words": ["red", "blue", "green", "yellow"]}
+                    ]
+                  },
+                  {
+                    "gameId": 5,
+                    "groups": [
+                      {"theme": "Animals", "words": ["cat", "dog", "bird", "fish"]}
+                    ]
+                  }
+                ]
+                """;
+        Path tempFile = Files.createTempFile("game-catalog-field-mismatch", ".json");
+        Files.writeString(tempFile, json);
+        try {
+            GameRepository repo = GameCatalogTestFactory.createGameRepository(tempFile.toString());
+
+            GameWordGroups game0 = repo.loadById(0L);
+            check(game0.gameId() == 0L, "loadById(0) should report gameId 0, ignoring the file's own \"gameId\":99");
+            check("Colors".equals(game0.groups().get(0).theme()),
+                    "loadById(0) should return the first array entry (Colors) regardless of its gameId field");
+
+            GameWordGroups game1 = repo.loadById(1L);
+            check(game1.gameId() == 1L, "loadById(1) should report gameId 1, ignoring the file's own \"gameId\":5");
+            check("Animals".equals(game1.groups().get(0).theme()),
+                    "loadById(1) should return the second array entry (Animals) regardless of its gameId field");
+        } finally {
+            new File(tempFile.toString()).delete();
+        }
+    }
+
+    private static void testGameRepositoryMissingFileThrows() {
+        // Whether this fails at construction or lazily at first use is an
+        // implementation detail; either way it must not succeed silently or
+        // crash with a raw unchecked I/O exception type leaking out.
+        String missingPath = "/tmp/definitely-does-not-exist-" + System.nanoTime() + ".json";
+        try {
+            GameRepository repo = GameCatalogTestFactory.createGameRepository(missingPath);
+            // Construction didn't fail eagerly - it must fail on first use instead.
+            assertThrows(Exception.class,
+                    () -> repo.loadById(0L),
+                    "Using a repository backed by a nonexistent file should throw, not return/crash silently");
+        } catch (Exception constructionFailure) {
+            // Failing fast at construction time is also an acceptable design -
+            // nothing further to assert here.
+        }
+    }
+
+    private static void testGameRepositoryCorruptJsonThrows() throws IOException {
+        Path tempFile = Files.createTempFile("game-catalog-corrupt", ".json");
+        Files.writeString(tempFile, "{ this is not valid json at all [[[");
+        try {
+            try {
+                GameRepository repo = GameCatalogTestFactory.createGameRepository(tempFile.toString());
+                assertThrows(Exception.class,
+                        () -> repo.loadById(0L),
+                        "Using a repository backed by unparsable JSON should throw, not return/crash silently");
+            } catch (Exception constructionFailure) {
+                // Failing fast at construction time is also acceptable.
+            }
         } finally {
             new File(tempFile.toString()).delete();
         }
