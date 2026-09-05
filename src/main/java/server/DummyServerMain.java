@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 public final class DummyServerMain {
 
     // ----- Constants -----
-    private static final int TCP_PORT = 5000;
+    private static final int TCP_PORT = 8080;
     private static final long GAME_DURATION_MS = 60_000L;
     private static final int WORDS_PER_GROUP = 4;
     private static final int MAX_MISTAKES = 4;

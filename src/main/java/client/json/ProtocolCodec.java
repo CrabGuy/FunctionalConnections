@@ -114,8 +114,22 @@ public final class ProtocolCodec {
             error = error(object.getAsJsonObject("error"));
         }
 
-        JsonElement rawData = object.get("data");
-        Object data = success ? decodeData(expectedOperation, rawData) : rawData;
+        // Only decode data if success is true AND data exists and is not null
+        Object data = null;
+        if (success) {
+            JsonElement rawData = object.get("data");
+            if (rawData != null && !rawData.isJsonNull()) {
+                data = decodeData(expectedOperation, rawData);
+            } else {
+                // Success but no data – this shouldn't happen, but handle gracefully
+                data = null;
+            }
+        } else {
+            // Failure: data should be null, but we might still want to include the raw data if present
+            JsonElement rawData = object.get("data");
+            data = (rawData != null && !rawData.isJsonNull()) ? rawData.getAsJsonObject() : null;
+        }
+
         return new ApiResponse<>(success, error, data);
     }
 

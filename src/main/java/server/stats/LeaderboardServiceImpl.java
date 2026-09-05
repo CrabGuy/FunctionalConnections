@@ -68,9 +68,16 @@ public record LeaderboardServiceImpl(
             }
         }
 
-        List<LeaderboardEntry> top = rankedEntries;
-        if (topK != null && topK > 0 && topK < rankedEntries.size()) {
+
+        List<LeaderboardEntry> top;
+        if (topK == null) {
+            top = rankedEntries;
+        } else if (topK <= 0) {
+            top = List.of();
+        } else if (topK < rankedEntries.size()) {
             top = rankedEntries.subList(0, topK);
+        } else {
+            top = rankedEntries;
         }
 
         return new LeaderboardData(

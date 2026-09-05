@@ -8,11 +8,11 @@ cd "$PROJECT_ROOT" || exit 1
 echo "Project root: $PROJECT_ROOT"
 
 # ----- Configuration -----
-SERVER_MAIN="server.DummyServerMain"    # Change to "server.DummyServerMain" if needed
+SERVER_MAIN="server.DummyServerMain"
 CLIENT_MAIN="client.ClientMain"
 LIB_DIR="$PROJECT_ROOT/lib"
 OUT_DIR="$PROJECT_ROOT/target/classes"
-SERVER_PORT=5000
+SERVER_PORT=8080
 SERVER_LOG="$PROJECT_ROOT/server.log"
 
 # ----- Clean previous build -----
