@@ -12,7 +12,7 @@ public final class ClientMain {
 
     public static void main(String[] ignored) {
         try {
-            ClientConfig config = ClientConfigLoader.load(Path.of("client.properties"));
+            ClientConfig config = ClientConfigLoader.load(Path.of("config/client.properties"));
             AccountSession session = new AccountSession();
             ConnectionManager connectionManager = new NioConnectionManager();
             NotificationListener notificationListener = new UdpNotificationListener();

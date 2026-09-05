@@ -44,7 +44,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class ServerMain {
 
-    private static final String CONFIG_FILE = "server.properties";
+    private static final String CONFIG_FILE = "config/server.properties";
     private static final int DEFAULT_PORT = 8080;
     private static final int DEFAULT_POOL_SIZE = 10;
     private static final long DEFAULT_GAME_DURATION_MILLIS = 3_600_000L;
