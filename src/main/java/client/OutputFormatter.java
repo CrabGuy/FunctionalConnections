@@ -30,12 +30,12 @@ public final class OutputFormatter {
         return sb.toString().trim();
     }
 
-    public static String formatGameStats(GameStatsData data) {
+    public static String formatGameStats(GameStatsData data, long nowMillis) {
         StringBuilder sb = new StringBuilder();
         sb.append("Game statistics for ").append(data.gameId()).append('\n');
         sb.append("Completed: ").append(data.completed()).append('\n');
         sb.append("Time remaining: ").append(formatDuration(
-                Math.max(0L, data.expiresAt() - System.currentTimeMillis()))).append('\n');
+                Math.max(0L, data.expiresAt() - nowMillis))).append('\n');
         sb.append("Total participants: ").append(data.totalParticipants()).append('\n');
         sb.append("Active players: ").append(data.activePlayers()).append('\n');
         sb.append("Completed players: ").append(data.completedPlayers()).append('\n');

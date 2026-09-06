@@ -1,12 +1,13 @@
 package shared.dto;
+
 public record UpdateCredentialsRequest(
-        String oldUsername,
-        String newUsername,
-        String oldPassword,
-        String newPassword
+    String operation,
+    String oldUsername,
+    String newUsername,
+    String oldPsw,
+    String newPsw
 ) implements ApiRequest {
-    @Override
-    public String getOperation() {
-        return "updateCredentials";
+    public UpdateCredentialsRequest(String oldUsername, String newUsername, String oldPsw, String newPsw) {
+        this("updateCredentials", oldUsername, newUsername, oldPsw, newPsw);
     }
 }

@@ -7,10 +7,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Pure calculations derived from server-provided game information. */
 public final class GameInfoCalculator {
-    private GameInfoCalculator() {
-    }
+    public enum ProposalOutcome { CORRECT, WRONG, UNCHANGED }
+
+    private GameInfoCalculator() {}
 
     public static int correctProposalCount(GameInfoData info) {
         return info.correctGuesses().size();
@@ -27,7 +27,6 @@ public final class GameInfoCalculator {
     public static List<String> remainingWords(GameInfoData info) {
         Set<String> grouped = new LinkedHashSet<>();
         info.correctGuesses().forEach(grouped::addAll);
-
         List<String> remaining = new ArrayList<>();
         for (String word : info.words()) {
             if (!grouped.contains(word)) {
@@ -55,5 +54,15 @@ public final class GameInfoCalculator {
         Set<String> requested = Set.copyOf(words);
         return (correct ? info.correctGuesses() : info.wrongGuesses()).stream()
                 .anyMatch(requested::equals);
+    }
+
+    public static ProposalOutcome evaluateProposal(GameInfoData data, List<String> submittedWords) {
+        if (containsGuess(data, submittedWords, true)) {
+            return ProposalOutcome.CORRECT;
+        }
+        if (containsGuess(data, submittedWords, false)) {
+            return ProposalOutcome.WRONG;
+        }
+        return ProposalOutcome.UNCHANGED;
     }
 }

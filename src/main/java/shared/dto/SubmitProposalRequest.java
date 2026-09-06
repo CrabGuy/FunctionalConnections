@@ -1,16 +1,18 @@
 package shared.dto;
+
 import java.util.List;
-public record SubmitProposalRequest(String accountToken, Long gameId, List<String> words) implements ApiRequest {
-    public SubmitProposalRequest {
-        words = List.copyOf(words);
-    }
 
+public record SubmitProposalRequest(
+    String operation,
+    String accountToken,
+    Long gameId,
+    List<String> words
+) implements ApiRequest {
     public SubmitProposalRequest(String accountToken, List<String> words) {
-        this(accountToken, null, words);
+        this("submitProposal", accountToken, null, words);
     }
 
-    @Override
-    public String getOperation() {
-        return "submitProposal";
+    public SubmitProposalRequest(String accountToken, Long gameId, List<String> words) {
+        this("submitProposal", accountToken, gameId, words);
     }
 }

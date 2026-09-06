@@ -1,6 +1,6 @@
 package client;
 
-import client.json.ProtocolCodec;
+import client.json.JsonCodec;
 import shared.dto.GameInfoData;
 import java.io.IOException;
 import java.net.DatagramPacket;
@@ -45,7 +45,7 @@ public final class UdpNotificationListener implements NotificationListener {
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 socket.receive(packet);
                 String json = new String(packet.getData(), packet.getOffset(), packet.getLength(), StandardCharsets.UTF_8);
-                GameInfoData info = ProtocolCodec.gameInfoFromJson(json);
+                GameInfoData info = JsonCodec.gameInfoFromJson(json);
                 try {
                     onGameEnd.accept(info);
                 } catch (RuntimeException e) {

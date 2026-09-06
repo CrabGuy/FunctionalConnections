@@ -34,11 +34,11 @@ public final class RequestDispatcherImpl implements RequestDispatcher {
     public ApiResponse<?> dispatch(ApiRequest request, InetSocketAddress remoteAddress) {
         try {
             return switch (request) {
-                case RegisterRequest req -> success(accountService.register(req.username(), req.password()));
+                case RegisterRequest req -> success(accountService.register(req.username(), req.psw()));
                 case LoginRequest req -> {
                     String token = accountService.login(
                             req.username(),
-                            req.password(),
+                            req.psw(),
                             req.udpPort(),
                             remoteAddress.getAddress().getHostAddress()
                     ).accountToken();
@@ -51,8 +51,8 @@ public final class RequestDispatcherImpl implements RequestDispatcher {
                 case UpdateCredentialsRequest req -> success(accountService.updateCredentials(
                         req.oldUsername(),
                         req.newUsername(),
-                        req.oldPassword(),
-                        req.newPassword()
+                        req.oldPsw(),
+                        req.newPsw()
                 ));
                 case SubmitProposalRequest req -> {
                     long gameId = req.gameId() != null

@@ -1,8 +1,8 @@
 package server;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import shared.dto.*;
-import client.json.ProtocolCodec;
 
 import java.io.*;
 import java.net.*;
@@ -14,13 +14,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
-/**
- * Dummy in‑memory server for testing the client without a full implementation.
- * Supports all client operations and sends UDP game‑end notifications on game rollover.
- */
 public final class DummyServerMain {
 
-    // ----- Constants -----
     private static final int TCP_PORT = 8080;
     private static final long GAME_DURATION_MS = 60_000L;
     private static final int WORDS_PER_GROUP = 4;
@@ -37,16 +32,13 @@ public final class DummyServerMain {
             .flatMap(Collection::stream)
             .collect(Collectors.toUnmodifiableList());
 
-    // ----- JSON serialisation -----
     private static final Gson GSON = new Gson();
 
-    // ----- Server state -----
     private final Map<String, String> passwords = new ConcurrentHashMap<>();
-    private final Map<String, String> tokens = new ConcurrentHashMap<>();          // token -> username
-    private final Map<String, Integer> udpPorts = new ConcurrentHashMap<>();       // username -> port
+    private final Map<String, String> tokens = new ConcurrentHashMap<>();
+    private final Map<String, Integer> udpPorts = new ConcurrentHashMap<>();
     private final Map<String, List<PlayerGuess>> guesses = new ConcurrentHashMap<>();
 
-    // ----- Main -----
     public static void main(String[] args) throws Exception {
         new DummyServerMain().start();
     }
@@ -57,12 +49,10 @@ public final class DummyServerMain {
         System.out.println("Game duration: " + (GAME_DURATION_MS / 1000) + " seconds");
         System.out.println("Try: register alice secret   then   login alice secret");
 
-        // Start the game rollover thread
         Thread rollover = new Thread(this::gameLoop, "dummy-game-loop");
         rollover.setDaemon(true);
         rollover.start();
 
-        // Accept TCP connections
         try (ServerSocketChannel server = ServerSocketChannel.open()) {
             server.bind(new InetSocketAddress("127.0.0.1", TCP_PORT));
             while (true) {
@@ -74,7 +64,6 @@ public final class DummyServerMain {
         }
     }
 
-    // ----- Client connection handler -----
     private void handleClient(SocketChannel channel) {
         try (SocketChannel client = channel;
              BufferedReader reader = new BufferedReader(
@@ -85,13 +74,14 @@ public final class DummyServerMain {
             String line;
             while ((line = reader.readLine()) != null) {
                 try {
-                    ApiRequest request = ProtocolCodec.requestFromJson(line);
+                    ApiRequest request = parseRequest(line);
                     ApiResponse<?> response = dispatch(request);
-                    writer.write(toJson(response));
+                    writer.write(GSON.toJson(response));
                     writer.newLine();
                     writer.flush();
                 } catch (RuntimeException e) {
-                    writer.write(errorJson(ErrorCode.INTERNAL_ERROR, "Server error: " + e.getMessage()));
+                    writer.write(GSON.toJson(new ApiResponse<>(false,
+                            new ApiError(ErrorCode.INTERNAL_ERROR, "Server error: " + e.getMessage()), null)));
                     writer.newLine();
                     writer.flush();
                 }
@@ -101,25 +91,47 @@ public final class DummyServerMain {
         }
     }
 
-    // ----- Request dispatching -----
-    private ApiResponse<?> dispatch(ApiRequest request) {
-        return switch (request.getOperation()) {
-            case "register" -> register((RegisterRequest) request);
-            case "updateCredentials" -> update((UpdateCredentialsRequest) request);
-            case "login" -> login((LoginRequest) request);
-            case "logout" -> logout((LogoutRequest) request);
-            case "submitProposal" -> submit((SubmitProposalRequest) request);
-            case "requestGameInfo" -> gameInfo((RequestGameInfoRequest) request);
-            case "requestGameStats" -> gameStats((RequestGameStatsRequest) request);
-            case "requestLeaderboard" -> leaderboard((RequestLeaderboardRequest) request);
-            case "requestPlayerStats" -> playerStats((RequestPlayerStatsRequest) request);
-            default -> fail(ErrorCode.INTERNAL_ERROR, "Unknown operation");
+    private ApiRequest parseRequest(String json) {
+        JsonObject obj = GSON.fromJson(json, JsonObject.class);
+        String operation = obj.get("operation").getAsString();
+        return switch (operation) {
+            case "register" -> GSON.fromJson(json, RegisterRequest.class);
+            case "updateCredentials" -> GSON.fromJson(json, UpdateCredentialsRequest.class);
+            case "login" -> GSON.fromJson(json, LoginRequest.class);
+            case "logout" -> GSON.fromJson(json, LogoutRequest.class);
+            case "submitProposal" -> GSON.fromJson(json, SubmitProposalRequest.class);
+            case "requestGameInfo" -> GSON.fromJson(json, RequestGameInfoRequest.class);
+            case "requestGameStats" -> GSON.fromJson(json, RequestGameStatsRequest.class);
+            case "requestLeaderboard" -> GSON.fromJson(json, RequestLeaderboardRequest.class);
+            case "requestPlayerStats" -> GSON.fromJson(json, RequestPlayerStatsRequest.class);
+            default -> throw new IllegalArgumentException("Unknown operation: " + operation);
         };
+    }
+
+    private ApiResponse<?> dispatch(ApiRequest request) {
+        try {
+            return switch (request) {
+                case RegisterRequest req -> ok(register(req));
+                case UpdateCredentialsRequest req -> ok(update(req));
+                case LoginRequest req -> ok(login(req));
+                case LogoutRequest req -> ok(logout(req));
+                case SubmitProposalRequest req -> ok(submit(req));
+                case RequestGameInfoRequest req -> ok(gameInfo(req));
+                case RequestGameStatsRequest req -> ok(gameStats(req));
+                case RequestLeaderboardRequest req -> ok(leaderboard(req));
+                case RequestPlayerStatsRequest req -> ok(playerStats(req));
+                default -> fail(ErrorCode.INTERNAL_ERROR, "Unsupported operation");
+            };
+        } catch (IllegalArgumentException e) {
+            return fail(ErrorCode.INTERNAL_ERROR, e.getMessage());
+        } catch (Exception e) {
+            return fail(ErrorCode.INTERNAL_ERROR, "Server error: " + e.getMessage());
+        }
     }
 
     // ----- Account operations -----
     private ApiResponse<RegisterData> register(RegisterRequest request) {
-        if (passwords.putIfAbsent(request.username(), request.password()) != null) {
+        if (passwords.putIfAbsent(request.username(), request.psw()) != null) {
             return fail(ErrorCode.USERNAME_ALREADY_REGISTERED, "Username already registered");
         }
         return ok(new RegisterData(request.username()));
@@ -127,27 +139,27 @@ public final class DummyServerMain {
 
     private ApiResponse<UpdateCredentialsData> update(UpdateCredentialsRequest request) {
         String oldPass = passwords.get(request.oldUsername());
-        if (oldPass == null || !oldPass.equals(request.oldPassword())) {
+        if (oldPass == null || !oldPass.equals(request.oldPsw())) {
             return fail(ErrorCode.INCORRECT_PASSWORD, "Incorrect password");
         }
         if (!request.oldUsername().equals(request.newUsername()) && passwords.containsKey(request.newUsername())) {
             return fail(ErrorCode.NEW_USERNAME_ALREADY_TAKEN, "Username already taken");
         }
         passwords.remove(request.oldUsername());
-        passwords.put(request.newUsername(), request.newPassword());
+        passwords.put(request.newUsername(), request.newPsw());
         tokens.entrySet().removeIf(e -> e.getValue().equals(request.oldUsername()));
         return ok(new UpdateCredentialsData(request.newUsername()));
     }
 
     private ApiResponse<LoginData> login(LoginRequest request) {
         String storedPass = passwords.get(request.username());
-        if (storedPass == null || !storedPass.equals(request.password())) {
+        if (storedPass == null || !storedPass.equals(request.psw())) {
             return fail(ErrorCode.INCORRECT_PASSWORD, "Incorrect password");
         }
         String token = "dummy-" + UUID.randomUUID();
         tokens.put(token, request.username());
         udpPorts.put(request.username(), request.udpPort());
-        getOrCreateGuesses(request.username()); // ensure entry exists
+        getOrCreateGuesses(request.username());
         return ok(new LoginData(token));
     }
 
@@ -198,7 +210,7 @@ public final class DummyServerMain {
         if (gameId < 0 || gameId > currentGameId()) {
             return fail(ErrorCode.GAME_NOT_FOUND, "Game not found");
         }
-        getOrCreateGuesses(username); // ensure data exists for current game
+        getOrCreateGuesses(username);
         return ok(buildGameInfo(username, gameId, gameId < currentGameId()));
     }
 
@@ -280,7 +292,7 @@ public final class DummyServerMain {
         for (long game = 0; game < currentGameId(); game++) {
             GameInfoData info = buildGameInfo(username, game, true);
             if (info.correctGuesses().isEmpty() && info.wrongGuesses().isEmpty()) {
-                continue; // player didn't participate
+                continue;
             }
             String status = determineStatus(info);
             if (!"ACTIVE".equals(status)) {
@@ -294,7 +306,6 @@ public final class DummyServerMain {
             }
         }
 
-        // Current streak (simple: count consecutive wins from most recent game)
         int currentStreak = 0;
         for (int i = finishedGames.size() - 1; i >= 0; i--) {
             GameInfoData info = buildGameInfo(username, finishedGames.get(i), true);
@@ -304,7 +315,7 @@ public final class DummyServerMain {
                 break;
             }
         }
-        int maxStreak = currentStreak; // this dummy server doesn't track historical streak, so set equal
+        int maxStreak = currentStreak;
 
         if (currentGameId() == 0 && completed == 0) {
             histogram.putIfAbsent(0, 0);
@@ -342,7 +353,6 @@ public final class DummyServerMain {
 
         List<List<String>> correctGroups = expired ? WORD_GROUPS : null;
 
-        // Shuffle words deterministically based on game ID to give variation
         List<String> shuffledWords = new ArrayList<>(ALL_WORDS);
         Collections.shuffle(shuffledWords, new Random(gameId));
 
@@ -436,7 +446,7 @@ public final class DummyServerMain {
             if (port <= 0) continue;
 
             GameInfoData result = buildGameInfo(username, gameId, true);
-            String json = GSON.toJson(gameInfoMap(result));
+            String json = GSON.toJson(result);
             byte[] payload = json.getBytes(StandardCharsets.UTF_8);
 
             try (DatagramSocket socket = new DatagramSocket()) {
@@ -451,89 +461,6 @@ public final class DummyServerMain {
         }
     }
 
-    // ----- JSON serialisation helpers -----
-    private static String toJson(ApiResponse<?> response) {
-        Map<String, Object> root = new LinkedHashMap<>();
-        root.put("success", response.success());
-        if (response.error() != null) {
-            Map<String, Object> errorMap = new LinkedHashMap<>();
-            errorMap.put("code", response.error().code().name());
-            errorMap.put("message", response.error().message());
-            root.put("error", errorMap);
-        } else {
-            root.put("error", null);
-        }
-        root.put("data", dataMap(response.data()));
-        return GSON.toJson(root);
-    }
-
-    private static String errorJson(ErrorCode code, String message) {
-        return toJson(new ApiResponse<>(false, new ApiError(code, message), null));
-    }
-
-    private static Map<String, Object> dataMap(Object data) {
-        if (data == null) return new LinkedHashMap<>();
-        Map<String, Object> map = new LinkedHashMap<>();
-
-        if (data instanceof RegisterData d) {
-            map.put("username", d.username());
-        } else if (data instanceof LoginData d) {
-            map.put("accountToken", d.accountToken());
-        } else if (data instanceof LogoutData) {
-            // no fields
-        } else if (data instanceof UpdateCredentialsData d) {
-            map.put("newUsername", d.newUsername());
-        } else if (data instanceof GameInfoData d) {
-            map.putAll(gameInfoMap(d));
-        } else if (data instanceof GameStatsData d) {
-            map.put("gameId", d.gameId());
-            map.put("completed", d.completed());
-            map.put("expiresAt", d.expiresAt());
-            map.put("totalParticipants", d.totalParticipants());
-            map.put("activePlayers", d.activePlayers());
-            map.put("completedPlayers", d.completedPlayers());
-            map.put("winners", d.winners());
-            map.put("averageScore", d.averageScore());
-        } else if (data instanceof LeaderboardData d) {
-            map.put("topPlayers", d.topPlayers().stream()
-                    .map(DummyServerMain::entryToMap).toList());
-            map.put("requestedPlayer", d.requestedPlayer() == null ? null : entryToMap(d.requestedPlayer()));
-            map.put("totalPlayers", d.totalPlayers());
-        } else if (data instanceof PlayerStatsData d) {
-            map.put("puzzlesCompleted", d.puzzlesCompleted());
-            map.put("winRate", d.winRate());
-            map.put("lossRate", d.lossRate());
-            map.put("currentStreak", d.currentStreak());
-            map.put("maxStreak", d.maxStreak());
-            map.put("perfectPuzzles", d.perfectPuzzles());
-            Map<String, Object> histogram = new LinkedHashMap<>();
-            d.mistakeHistogram().forEach((k, v) -> histogram.put(String.valueOf(k), v));
-            map.put("mistakeHistogram", histogram);
-        } else {
-            throw new IllegalArgumentException("Unsupported data type: " + data.getClass());
-        }
-        return map;
-    }
-
-    private static Map<String, Object> entryToMap(LeaderboardEntry entry) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("username", entry.username());
-        m.put("score", entry.score());
-        m.put("rank", entry.rank());
-        return m;
-    }
-
-    private static Map<String, Object> gameInfoMap(GameInfoData d) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("gameId", d.gameId());
-        map.put("expiresAt", d.expiresAt());
-        map.put("words", d.words());
-        map.put("correctGuesses", d.correctGuesses());
-        map.put("wrongGuesses", d.wrongGuesses());
-        map.put("correctGroups", d.correctGroups());
-        return map;
-    }
-
     // ----- Utility responses -----
     private static <T> ApiResponse<T> ok(T data) {
         return new ApiResponse<>(true, null, data);
@@ -543,6 +470,5 @@ public final class DummyServerMain {
         return new ApiResponse<>(false, new ApiError(code, message), null);
     }
 
-    // ----- Internal record for player guesses -----
     private record PlayerGuess(long gameId, List<String> words, boolean correct) {}
 }

@@ -1,4 +1,5 @@
 package shared.dto;
+
 public interface ApiRequest {
-    String getOperation();
+    String operation();
 }
