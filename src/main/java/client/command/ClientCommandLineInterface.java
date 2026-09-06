@@ -3,6 +3,7 @@ package client.command;
 import client.command.requests.*;
 import client.config.ClientConfig;
 import client.connection.ConnectionManager;
+import client.formatting.AnsiColor;
 import client.notification.NotificationListener;
 import client.session.AccountSession;
 
@@ -28,18 +29,26 @@ public final class ClientCommandLineInterface implements CommandLineInterface {
         this.input = new BufferedReader(new InputStreamReader(System.in));
         this.context = new CommandContext(session, connectionManager, notificationListener, config, output);
         this.commands = new LinkedHashMap<>();
+        // Register commands with aliases
         commands.put("register", new RegisterCommand());
+        commands.put("reg", new RegisterCommand());
         commands.put("update", new UpdateCredentialsCommand());
         commands.put("updatecredentials", new UpdateCredentialsCommand());
+        commands.put("upd", new UpdateCredentialsCommand());
         commands.put("login", new LoginCommand());
         commands.put("logout", new LogoutCommand());
         commands.put("submit", new SubmitProposalCommand());
+        commands.put("s", new SubmitProposalCommand());
         commands.put("game", new RequestGameInfoCommand());
+        commands.put("g", new RequestGameInfoCommand());
         commands.put("gameinfo", new RequestGameInfoCommand());
         commands.put("gamestats", new RequestGameStatsCommand());
+        commands.put("gs", new RequestGameStatsCommand());
         commands.put("game-stats", new RequestGameStatsCommand());
         commands.put("leaderboard", new RequestLeaderboardCommand());
+        commands.put("lb", new RequestLeaderboardCommand());
         commands.put("playerstats", new RequestPlayerStatsCommand());
+        commands.put("ps", new RequestPlayerStatsCommand());
         commands.put("player-stats", new RequestPlayerStatsCommand());
     }
 
@@ -95,7 +104,7 @@ public final class ClientCommandLineInterface implements CommandLineInterface {
             String result = command.execute(Arrays.asList(tokens), context);
             output.println(result);
         } catch (CommandException e) {
-            output.println("Error: " + e.getMessage());
+            output.println(AnsiColor.RED.wrap("Error: " + e.getMessage()));
         } catch (IOException e) {
             output.println("Network error: " + e.getMessage());
             throw e;
@@ -103,18 +112,16 @@ public final class ClientCommandLineInterface implements CommandLineInterface {
     }
 
     private void printHelp() {
-        output.println("Commands:");
-        output.println("  register <username> <password>");
-        output.println("  update <oldUsername> <newUsername> <oldPassword> <newPassword>");
+        output.println("Commands (aliases in parentheses):");
+        output.println("  register <username> <password>        (reg)");
+        output.println("  update <oldUser> <newUser> <oldPwd> <newPwd>  (upd)");
         output.println("  login <username> <password>");
         output.println("  logout");
-        output.println("  submit <word1> <word2> <word3> <word4>");
-        output.println("  game [gameId]");
-        output.println("  gamestats [gameId]");
-        output.println("  leaderboard");
-        output.println("  leaderboard top <K>");
-        output.println("  leaderboard player <name>");
-        output.println("  playerstats");
+        output.println("  submit <word1..4>  OR  submit <n1 n2 n3 n4>   (s)");
+        output.println("  game [gameId]                          (g)");
+        output.println("  gamestats [gameId]                     (gs)");
+        output.println("  leaderboard | leaderboard top <K> | leaderboard player <name>  (lb)");
+        output.println("  playerstats                            (ps)");
         output.println("  help");
         output.println("  exit");
     }

@@ -5,8 +5,10 @@ import client.command.CommandContext;
 import client.command.CommandException;
 import client.formatting.OutputFormatter;
 import shared.dto.ApiResponse;
+import shared.dto.GameInfoData;
 import shared.dto.LoginData;
 import shared.dto.LoginRequest;
+import shared.dto.RequestGameInfoRequest;
 
 import java.io.IOException;
 import java.util.List;
@@ -41,6 +43,19 @@ public final class LoginCommand implements Command {
             throw new CommandException(OutputFormatter.formatError(response.error().message()));
         }
         context.session().setAccountToken(response.data().accountToken());
-        return "Logged in as " + args.get(1) + ". Current game participation has started.";
+
+        // Fetch and display current game info (but do not store it)
+        @SuppressWarnings("unchecked")
+        ApiResponse<GameInfoData> gameResponse = (ApiResponse<GameInfoData>) context.connectionManager().send(
+            new RequestGameInfoRequest(context.session().accountToken(), null)
+        );
+        String gameInfoMessage = "";
+        if (gameResponse.success()) {
+            gameInfoMessage = OutputFormatter.formatGameInfo(gameResponse.data(), System.currentTimeMillis());
+        } else {
+            gameInfoMessage = "Warning: could not fetch current game info: " +
+                    OutputFormatter.formatError(gameResponse.error().message());
+        }
+        return "Logged in as " + args.get(1) + ". Current game participation started.\n" + gameInfoMessage;
     }
 }
