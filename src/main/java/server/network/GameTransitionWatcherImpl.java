@@ -13,7 +13,6 @@ import shared.dto.GameInfoData;
 import java.util.*;
 import java.util.stream.Collectors;
 
-// Slight, and i mean SLIGHT race condition with what players recieve the notification (login) and what they receive (submitProposal)
 public final class GameTransitionWatcherImpl implements GameTransitionWatcher {
     private final GameClock gameClock;
     private final PlayerGameRepository playerGameRepository;

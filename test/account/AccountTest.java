@@ -48,6 +48,7 @@ public class AccountTest {
         runTest("testLoginNonexistentUsername", AccountTest::testLoginNonexistentUsername);
         runTest("testLogout", AccountTest::testLogout);
         runTest("testLogoutInvalidToken", AccountTest::testLogoutInvalidToken);
+        runTest("testTokenInvalidAfterLogout", AccountTest::testTokenInvalidAfterLogout);
         runTest("testUpdateCredentialsSuccess", AccountTest::testUpdateCredentialsSuccess);
         runTest("testUpdateCredentialsIncorrectOldPassword", AccountTest::testUpdateCredentialsIncorrectOldPassword);
         runTest("testUpdateCredentialsNewUsernameTaken", AccountTest::testUpdateCredentialsNewUsernameTaken);
@@ -187,9 +188,6 @@ public class AccountTest {
         ServerConfig config = AccountTestFactory.createTestConfig();
         AccountService service = AccountTestFactory.createAccountService(repo, notifReg, hasher, signer, config);
 
-        // Design choice: a username that was never registered fails the same
-        // way as a wrong password for an existing one, so the error alone
-        // can't be used to enumerate which usernames exist on the server.
         assertThrows(IncorrectPasswordException.class,
                 () -> service.login("ghost", "whatever", 0, "127.0.0.1"),
                 "Login with an unknown username should throw IncorrectPasswordException, not leak account existence");
@@ -222,6 +220,29 @@ public class AccountTest {
         assertThrows(InvalidTokenException.class,
                 () -> service.logout("not-a-real-token"),
                 "Logout with an invalid/unknown token should throw InvalidTokenException");
+    }
+
+    private static void testTokenInvalidAfterLogout() {
+        AccountRepository repo = AccountTestFactory.createAccountRepository();
+        NotificationRegistry notifReg = AccountTestFactory.createNotificationRegistry();
+        PasswordHasher hasher = AccountTestFactory.createPasswordHasher();
+        TokenSigner signer = AccountTestFactory.createTokenSigner();
+        ServerConfig config = AccountTestFactory.createTestConfig();
+        AccountService service = AccountTestFactory.createAccountService(repo, notifReg, hasher, signer, config);
+
+        service.register("fiona", "pw");
+        LoginData data = service.login("fiona", "pw", 12345, "127.0.0.1");
+
+        // Token is valid before logout
+        AccountPrincipal principal = service.resolve(data.accountToken());
+        check("fiona".equals(principal.username()), "Token should be resolvable before logout");
+
+        service.logout(data.accountToken());
+
+        // After logout, the token must be invalid
+        assertThrows(InvalidTokenException.class,
+                () -> service.resolve(data.accountToken()),
+                "Token should be invalid after logout");
     }
 
     private static void testUpdateCredentialsSuccess() {
@@ -280,9 +301,6 @@ public class AccountTest {
         ServerConfig config = AccountTestFactory.createTestConfig();
         AccountService service = AccountTestFactory.createAccountService(repo, notifReg, hasher, signer, config);
 
-        // Consistent with login: an oldUsername that was never registered
-        // can't have its password verified, so it fails the same way as a
-        // wrong password rather than a distinct "no such user" error.
         assertThrows(IncorrectPasswordException.class,
                 () -> service.updateCredentials("ghost", "ghost2", "whatever", "newpw"),
                 "updateCredentials for a never-registered username should throw IncorrectPasswordException");
@@ -298,10 +316,6 @@ public class AccountTest {
 
         service.register("nora", "oldpass");
 
-        // Renaming to the SAME username (i.e. only changing the password)
-        // must not be rejected as "already taken": the existing account found
-        // under that username IS the account being updated, not a different
-        // one that happens to collide.
         UpdateCredentialsData result = service.updateCredentials("nora", "nora", "oldpass", "newpass");
         check("nora".equals(result.newUsername()), "Username should remain unchanged");
 
@@ -360,7 +374,6 @@ public class AccountTest {
         check("kate".equals(principal.username()), "Verified token should contain username");
         check(principal.expiresAt() > Instant.now().getEpochSecond(), "Token should be valid");
 
-        // Expired token
         String expiredToken = signer.sign("kate", nowMilli - 10 * 1000);
         assertThrows(InvalidTokenException.class,
                 () -> signer.verify(expiredToken),
@@ -474,8 +487,6 @@ public class AccountTest {
             executor.submit(() -> {
                 try {
                     startGate.await();
-                    // Same username, different password from every thread:
-                    // exactly one of these should ever "win".
                     service.register("racer", "pw" + idx);
                     successCount.incrementAndGet();
                 } catch (UsernameAlreadyRegisteredException expected) {
@@ -541,11 +552,6 @@ public class AccountTest {
         check(finished, "All login/logout threads should complete within the timeout");
         check(unexpected.isEmpty(),
                 "No exceptions expected from concurrent login/logout of the same user: " + unexpected);
-        // Every thread paired its own login with its own logout. Regardless of
-        // interleaving, once all threads finish there should be no dangling
-        // registration left for "oscar" - this also exercises the registry
-        // under concurrent map mutation without crashing (e.g. no
-        // ConcurrentModificationException).
         check(notifReg.lookup("oscar").isEmpty(),
                 "NotificationRegistry should end up empty after every concurrent login was followed by its own logout");
     }
