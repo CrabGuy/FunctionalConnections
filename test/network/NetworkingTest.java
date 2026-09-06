@@ -9,20 +9,15 @@ import server.stats.LeaderboardService;
 import server.stats.StatsService;
 import shared.dto.*;
 
+import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
 
-//TODO: inconsistent deafault stub creation
-
-/**
- * Simple test runner for the Networking slice (Slice E).
- * Tests the RequestDispatcher component using stub services.
- * Stub implementations reside in {@link NetworkingTestFactory}.
- */
 public class NetworkingTest {
 
     private static int passed = 0;
     private static int failed = 0;
+    private static final InetSocketAddress TEST_ADDRESS = new InetSocketAddress("127.0.0.1", 12345);
 
     public static void main(String[] args) {
         System.out.println("Running Networking slice tests...\n");
@@ -78,15 +73,11 @@ public class NetworkingTest {
         }
     }
 
-    // ---------------------- Helper assertion methods ----------------------
-
     private static void check(boolean condition, String message) {
         if (!condition) {
             throw new AssertionError(message);
         }
     }
-
-    // ---------------------- Helper factory method for dispatcher with all stubs ----------------------
 
     private static RequestDispatcher createDispatcherWithDefaultStubs() {
         return NetworkingTestFactory.createRequestDispatcher(
@@ -96,8 +87,6 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService()
         );
     }
-
-    // ---------------------- Test methods ----------------------
 
     private static void testRegisterSuccess() {
         AccountService accountService = new NetworkingTestFactory.StubAccountService() {
@@ -111,7 +100,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RegisterRequest("alice", "secret");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(response.success(), "register should succeed");
         check(response.error() == null, "register should have no error");
@@ -132,7 +121,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RegisterRequest("alice", "secret");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "register should fail");
         check(response.error() != null, "error should be present");
@@ -152,7 +141,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new LoginRequest("alice", "secret", 5001);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(response.success(), "login should succeed");
         check(response.data() instanceof LoginData, "data should be LoginData");
@@ -172,7 +161,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new LoginRequest("alice", "wrong", 5001);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "login should fail");
         check(response.error() != null, "error should be present");
@@ -191,7 +180,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new LogoutRequest("token-abc");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(response.success(), "logout should succeed");
         check(response.data() instanceof LogoutData, "data should be LogoutData");
@@ -209,7 +198,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new LogoutRequest("bad-token");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "logout should fail");
         check(response.error() != null, "error should be present");
@@ -228,7 +217,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new UpdateCredentialsRequest("alice", "alice2", "oldpass", "newpass");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(response.success(), "updateCredentials should succeed");
         check(response.data() instanceof UpdateCredentialsData, "data should be UpdateCredentialsData");
@@ -248,7 +237,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new UpdateCredentialsRequest("alice", "alice2", "wrongold", "newpass");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "updateCredentials should fail");
         check(response.error().code() == ErrorCode.INCORRECT_PASSWORD, "error code should be INCORRECT_PASSWORD");
@@ -266,7 +255,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new UpdateCredentialsRequest("alice", "bob", "oldpass", "newpass");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "updateCredentials should fail");
         check(response.error().code() == ErrorCode.NEW_USERNAME_ALREADY_TAKEN, "error code should be NEW_USERNAME_ALREADY_TAKEN");
@@ -286,7 +275,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new SubmitProposalRequest("token", List.of("red", "blue", "green", "yellow"));
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(response.success(), "submitProposal should succeed");
         check(response.data() instanceof GameInfoData, "data should be GameInfoData");
@@ -304,7 +293,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new SubmitProposalRequest("token", List.of("red", "blue"));
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "submitProposal should fail");
         check(response.error().code() == ErrorCode.MALFORMED_PROPOSAL, "error code should be MALFORMED_PROPOSAL");
@@ -322,7 +311,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new SubmitProposalRequest("token", List.of("red", "blue", "green", "yellow"));
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "submitProposal should fail");
         check(response.error().code() == ErrorCode.GAME_NOT_CURRENT, "error code should be GAME_NOT_CURRENT");
@@ -340,7 +329,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new SubmitProposalRequest("token", List.of("red", "blue", "green", "yellow"));
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "submitProposal should fail");
         check(response.error().code() == ErrorCode.PLAYER_ALREADY_COMPLETED_GAME, "error code should be PLAYER_ALREADY_COMPLETED_GAME");
@@ -358,7 +347,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new SubmitProposalRequest("bad-token", List.of("red", "blue", "green", "yellow"));
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "submitProposal should fail");
         check(response.error().code() == ErrorCode.USER_NOT_LOGGED_IN, "error code should be USER_NOT_LOGGED_IN");
@@ -378,7 +367,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RequestGameInfoRequest("token", 1L);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(response.success(), "requestGameInfo should succeed");
         check(response.data() instanceof GameInfoData, "data should be GameInfoData");
@@ -396,7 +385,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RequestGameInfoRequest("token", 999L);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "requestGameInfo should fail");
         check(response.error().code() == ErrorCode.GAME_NOT_FOUND, "error code should be GAME_NOT_FOUND");
@@ -414,7 +403,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RequestGameInfoRequest("bad-token", 1L);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "requestGameInfo should fail");
         check(response.error().code() == ErrorCode.USER_NOT_LOGGED_IN, "error code should be USER_NOT_LOGGED_IN");
@@ -433,7 +422,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RequestGameStatsRequest("token", 1L);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(response.success(), "requestGameStats should succeed");
         check(response.data() instanceof GameStatsData, "data should be GameStatsData");
@@ -452,7 +441,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RequestGameStatsRequest("token", 999L);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "requestGameStats should fail");
         check(response.error().code() == ErrorCode.GAME_NOT_FOUND, "error code should be GAME_NOT_FOUND");
@@ -471,7 +460,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RequestGameStatsRequest("bad-token", 1L);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "requestGameStats should fail");
         check(response.error().code() == ErrorCode.USER_NOT_LOGGED_IN, "error code should be USER_NOT_LOGGED_IN");
@@ -494,7 +483,7 @@ public class NetworkingTest {
                 leaderboardService);
 
         ApiRequest request = new RequestLeaderboardRequest("token", "bob", 3);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(response.success(), "requestLeaderboard should succeed");
         check(response.data() instanceof LeaderboardData, "data should be LeaderboardData");
@@ -513,7 +502,7 @@ public class NetworkingTest {
                 leaderboardService);
 
         ApiRequest request = new RequestLeaderboardRequest("bad-token", null, null);
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "requestLeaderboard should fail");
         check(response.error().code() == ErrorCode.USER_NOT_LOGGED_IN, "error code should be USER_NOT_LOGGED_IN");
@@ -532,7 +521,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RequestPlayerStatsRequest("token");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(response.success(), "requestPlayerStats should succeed");
         check(response.data() instanceof PlayerStatsData, "data should be PlayerStatsData");
@@ -551,7 +540,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RequestPlayerStatsRequest("bad-token");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "requestPlayerStats should fail");
         check(response.error().code() == ErrorCode.USER_NOT_LOGGED_IN, "error code should be USER_NOT_LOGGED_IN");
@@ -561,10 +550,10 @@ public class NetworkingTest {
         RequestDispatcher dispatcher = createDispatcherWithDefaultStubs();
 
         ApiRequest request = new ApiRequest() {
-            @Override public String getOperation() { return "unknown"; }
+            @Override public String operation() { return "unknown"; }
         };
 
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
         check(!response.success(), "unknown operation should fail");
         check(response.error() != null, "error should be present");
         check(response.error().code() == ErrorCode.INTERNAL_ERROR, "error code should be INTERNAL_ERROR");
@@ -582,7 +571,7 @@ public class NetworkingTest {
                 new NetworkingTestFactory.StubLeaderboardService());
 
         ApiRequest request = new RegisterRequest("alice", "secret");
-        ApiResponse<?> response = dispatcher.dispatch(request);
+        ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
 
         check(!response.success(), "register should fail");
         check(response.error() != null, "error should be present");

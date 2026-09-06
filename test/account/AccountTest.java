@@ -353,15 +353,15 @@ public class AccountTest {
 
     private static void testTokenSigner() {
         TokenSigner signer = AccountTestFactory.createTokenSigner();
-        long nowSeconds = Instant.now().getEpochSecond();
-        String token = signer.sign("kate", nowSeconds + 60);
-        check(token != null && !token.isBlank(), "Token should be non‑blank");
+        long nowMilli = System.currentTimeMillis();
+        String token = signer.sign("kate", nowMilli + 60 * 1000);
+        check(token != null && !token.isBlank(), "Token should be non-blank");
         AccountPrincipal principal = signer.verify(token);
         check("kate".equals(principal.username()), "Verified token should contain username");
         check(principal.expiresAt() > Instant.now().getEpochSecond(), "Token should be valid");
 
         // Expired token
-        String expiredToken = signer.sign("kate", nowSeconds - 10);
+        String expiredToken = signer.sign("kate", nowMilli - 10 * 1000);
         assertThrows(InvalidTokenException.class,
                 () -> signer.verify(expiredToken),
                 "Verifying an expired token should throw InvalidTokenException");

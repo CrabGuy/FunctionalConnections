@@ -10,7 +10,6 @@ import server.stats.LeaderboardService;
 import server.stats.StatsService;
 import shared.dto.*;
 
-import java.net.InetSocketAddress;
 import java.util.List;
 
 /**
@@ -76,8 +75,7 @@ public class NetworkingTestFactory {
                 proposalService,
                 statsService,
                 leaderboardService,
-                new StubGameClock(),
-                new InetSocketAddress("127.0.0.1", 0)
+                new StubGameClock()
         );
     }
 }
