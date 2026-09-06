@@ -12,8 +12,6 @@ import shared.dto.LeaderboardEntry;
 import java.util.*;
 import java.util.stream.Collectors;
 
-//TODO: need further clarification and check concurrency
-
 public record LeaderboardServiceImpl(
         AccountService accountService,
         PlayerGameRepository playerGameRepository,

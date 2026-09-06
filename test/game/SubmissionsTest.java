@@ -24,7 +24,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-//TODO: Add test for submitting proposal while logged
+//TODO: Add test for submitting proposal while logged, note that it shouldn't happen
 
 /**
  * Test runner for Proposal submission & per-player game state slice (Slice C).

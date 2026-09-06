@@ -14,8 +14,6 @@ import shared.dto.UpdateCredentialsData;
 import java.net.InetSocketAddress;
 import java.util.Optional;
 
-// TODO: Fix concurrency since modifications are not atomic
-
 /**
  * Default implementation of {@link AccountService}.
  * Uses constructor injection for all dependencies.
@@ -29,7 +27,7 @@ public record AccountServiceImpl(
 ) implements AccountService {
 
     @Override
-    public RegisterData register(String username, String password)
+    public synchronized RegisterData register(String username, String password)
             throws UsernameAlreadyRegisteredException {
         if (accountRepository.existsByUsername(username)) {
             throw new UsernameAlreadyRegisteredException(username);
@@ -40,7 +38,7 @@ public record AccountServiceImpl(
     }
 
     @Override
-    public LoginData login(String username, String password, int udpPort, String remoteAddress)
+    public synchronized LoginData login(String username, String password, int udpPort, String remoteAddress)
             throws IncorrectPasswordException {
         Optional<Account> opt = accountRepository.findAccountByUsername(username);
         if (opt.isEmpty() || !passwordHasher.matches(password, opt.get().passwordHash())) {
@@ -57,13 +55,13 @@ public record AccountServiceImpl(
     }
 
     @Override
-    public void logout(String accountToken) throws InvalidTokenException {
+    public synchronized void logout(String accountToken) throws InvalidTokenException {
         AccountPrincipal principal = tokenSigner.verify(accountToken);
         notificationRegistry.unregister(principal.username());
     }
 
     @Override
-    public UpdateCredentialsData updateCredentials(
+    public synchronized UpdateCredentialsData updateCredentials(
             String oldUsername,
             String newUsername,
             String oldPassword,

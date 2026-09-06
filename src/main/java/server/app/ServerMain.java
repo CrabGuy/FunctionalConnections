@@ -137,8 +137,14 @@ public class ServerMain {
         // 8. Background tasks
         // Game transition watcher
         GameTransitionWatcher watcher = new GameTransitionWatcherImpl(
-                gameClock, playerGameRepo, proposalService, notificationService,
-                transitionPollMillis);
+                gameClock,
+                playerGameRepo,
+                proposalService,
+                notificationService,
+                notificationRegistry,
+                gameRepo,
+                transitionPollMillis
+        );
         Thread transitionWatcherThread = new Thread(watcher, "game-transition-watcher");
         transitionWatcherThread.setDaemon(true);
         transitionWatcherThread.start();

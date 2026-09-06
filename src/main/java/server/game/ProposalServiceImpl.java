@@ -5,6 +5,7 @@ import server.account.exceptions.InvalidTokenException;
 import server.dto.AccountPrincipal;
 import server.dto.GameWordGroups;
 import server.dto.PlayerGame;
+import server.dto.PlayerGameKey;
 import server.dto.Proposal;
 import server.dto.WordGroup;
 import server.game.exceptions.*;
@@ -15,14 +16,25 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-public record ProposalServiceImpl(
-        AccountService accountService,
-        GameRepository gameRepository,
-        GameClock gameClock,
-        PlayerGameRepository playerGameRepository
-) implements ProposalService {
+public final class ProposalServiceImpl implements ProposalService {
+    private final AccountService accountService;
+    private final GameRepository gameRepository;
+    private final GameClock gameClock;
+    private final PlayerGameRepository playerGameRepository;
+    private final ConcurrentHashMap<PlayerGameKey, Object> locks = new ConcurrentHashMap<>();
+
+    public ProposalServiceImpl(AccountService accountService,
+                               GameRepository gameRepository,
+                               GameClock gameClock,
+                               PlayerGameRepository playerGameRepository) {
+        this.accountService = accountService;
+        this.gameRepository = gameRepository;
+        this.gameClock = gameClock;
+        this.playerGameRepository = playerGameRepository;
+    }
 
     @Override
     public GameInfoData submitProposal(String accountToken, long gameId, List<String> words)
@@ -34,34 +46,34 @@ public record ProposalServiceImpl(
         if (gameId != currentGameId) {
             throw new GameNotCurrentException(gameId, currentGameId);
         }
-        GameWordGroups game = gameRepository.loadById(gameId);
-        PlayerGame playerGame = playerGameRepository.findOrCreate(username, gameId);
-
-        GuessesSummary summary = summarize(playerGame, game.groups());
-        if (isPlayerFinished(summary)) {
-            throw new PlayerAlreadyCompletedGameException(username, gameId);
+        PlayerGameKey key = new PlayerGameKey(username, gameId);
+        Object lock = locks.computeIfAbsent(key, k -> new Object());
+        synchronized (lock) {
+            GameWordGroups game = gameRepository.loadById(gameId);
+            PlayerGame playerGame = playerGameRepository.findOrCreate(username, gameId);
+            GuessesSummary summary = summarize(playerGame, game.groups());
+            if (isPlayerFinished(summary)) {
+                throw new PlayerAlreadyCompletedGameException(username, gameId);
+            }
+            validateProposal(words, game, summary);
+            Proposal newProposal = new Proposal(Set.copyOf(words));
+            List<Proposal> updatedProposals = new ArrayList<>(playerGame.proposals());
+            updatedProposals.add(newProposal);
+            PlayerGame updatedPlayerGame = new PlayerGame(username, gameId, updatedProposals);
+            playerGameRepository.save(updatedPlayerGame);
+            GuessesSummary updatedSummary = summarize(updatedPlayerGame, game.groups());
+            boolean includeCorrectGroups = isPlayerFinished(updatedSummary)
+                    || gameClock.isCompleted(gameId, System.currentTimeMillis());
+            return buildGameInfoData(
+                    gameId,
+                    gameClock.expiresAt(gameId),
+                    shuffleWords(game, gameId),
+                    updatedPlayerGame,
+                    game.groups(),
+                    includeCorrectGroups,
+                    updatedSummary
+            );
         }
-
-        validateProposal(words, game, summary);
-
-        Proposal newProposal = new Proposal(Set.copyOf(words));
-        List<Proposal> updatedProposals = new ArrayList<>(playerGame.proposals());
-        updatedProposals.add(newProposal);
-        PlayerGame updatedPlayerGame = new PlayerGame(username, gameId, updatedProposals);
-        playerGameRepository.save(updatedPlayerGame);
-
-        GuessesSummary updatedSummary = summarize(updatedPlayerGame, game.groups());
-        boolean includeCorrectGroups = isPlayerFinished(updatedSummary)
-                || gameClock.isCompleted(gameId, System.currentTimeMillis());
-        return buildGameInfoData(
-                gameId,
-                gameClock.expiresAt(gameId),
-                shuffleWords(game, gameId),
-                updatedPlayerGame,
-                game.groups(),
-                includeCorrectGroups,
-                updatedSummary
-        );
     }
 
     @Override
@@ -118,8 +130,6 @@ public record ProposalServiceImpl(
                 summary
         );
     }
-
-    // ---------- Helper methods ----------
 
     private void validateProposal(List<String> words, GameWordGroups game, GuessesSummary summary)
             throws InvalidProposalException {
