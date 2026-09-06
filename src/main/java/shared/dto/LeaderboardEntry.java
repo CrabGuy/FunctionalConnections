@@ -1,3 +1,3 @@
 package shared.dto;
-public record LeaderboardEntry(String username, int score, int rank) {
-}
+
+public record LeaderboardEntry(String username, int score, int rank) {}

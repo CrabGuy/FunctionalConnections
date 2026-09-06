@@ -1,3 +1,3 @@
 package server.dto;
-public record Account(String username, String passwordHash) {
-}
+
+public record Account(String username, String passwordHash) {}

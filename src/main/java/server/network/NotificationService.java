@@ -1,6 +1,8 @@
 package server.network;
-import shared.dto.GameInfoData;
+
 import java.util.Map;
+import shared.dto.GameInfoData;
+
 public interface NotificationService {
-    void notifyGameEnd(Map<String, GameInfoData> resultsByUsername);
+  void notifyGameEnd(Map<String, GameInfoData> resultsByUsername);
 }

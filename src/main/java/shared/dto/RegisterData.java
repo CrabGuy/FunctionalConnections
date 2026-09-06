@@ -1,3 +1,3 @@
 package shared.dto;
-public record RegisterData(String username) {
-}
+
+public record RegisterData(String username) {}

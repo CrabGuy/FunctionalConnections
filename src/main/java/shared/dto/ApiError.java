@@ -1,3 +1,3 @@
 package shared.dto;
-public record ApiError(ErrorCode code, String message) {
-}
+
+public record ApiError(ErrorCode code, String message) {}

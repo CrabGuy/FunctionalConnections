@@ -4,4 +4,3 @@
 - UDP notifications from the server are absolutely useless and could be done client side
 - File persistence could have been implemented differently, using a file as the source of truth instead of saving everything in memory and modifying the JSON file directly by only parsing the structure and modifying the relevant parts of the file. But the current implementation is fine.
 - Player-Game locks in submit proposal keeps growing
-- Server has terrible scalability, one connection per thread with 10 threads...

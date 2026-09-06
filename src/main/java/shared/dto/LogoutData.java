@@ -1,3 +1,3 @@
 package shared.dto;
-public record LogoutData() {
-}
+
+public record LogoutData() {}

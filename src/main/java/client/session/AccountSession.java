@@ -1,17 +1,17 @@
 package client.session;
 
 public final class AccountSession {
-    private volatile String accountToken;
+  private volatile String accountToken;
 
-    public String accountToken() {
-        return accountToken;
-    }
+  public String accountToken() {
+    return accountToken;
+  }
 
-    public void setAccountToken(String accountToken) {
-        this.accountToken = accountToken;
-    }
+  public void setAccountToken(String accountToken) {
+    this.accountToken = accountToken;
+  }
 
-    public void clear() {
-        this.accountToken = null;
-    }
+  public void clear() {
+    this.accountToken = null;
+  }
 }
