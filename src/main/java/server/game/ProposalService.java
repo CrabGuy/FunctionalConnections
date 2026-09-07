@@ -9,12 +9,12 @@ import server.game.exceptions.PlayerAlreadyCompletedGameException;
 import shared.dto.GameInfoData;
 
 public interface ProposalService {
-    GameInfoData submitProposal(String accountToken, long gameId, List<String> words)
-            throws InvalidTokenException,
-                    InvalidProposalException,
-                    GameNotCurrentException,
-                    PlayerAlreadyCompletedGameException;
+  GameInfoData submitProposal(String accountToken, long gameId, List<String> words)
+      throws InvalidTokenException,
+          InvalidProposalException,
+          GameNotCurrentException,
+          PlayerAlreadyCompletedGameException;
 
-    GameInfoData getGameInfo(String accountToken, Long gameId)
-            throws InvalidTokenException, GameNotFoundException;
+  GameInfoData getGameInfo(String accountToken, Long gameId)
+      throws InvalidTokenException, GameNotFoundException;
 }

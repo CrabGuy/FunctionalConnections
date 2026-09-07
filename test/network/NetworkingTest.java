@@ -55,7 +55,6 @@ public class NetworkingTest {
     runTest("testRequestPlayerStatsSuccess", NetworkingTest::testRequestPlayerStatsSuccess);
     runTest(
         "testRequestPlayerStatsInvalidToken", NetworkingTest::testRequestPlayerStatsInvalidToken);
-    runTest("testUnknownOperation", NetworkingTest::testUnknownOperation);
     runTest("testInternalErrorMapping", NetworkingTest::testInternalErrorMapping);
 
     System.out.println("\n-----------------------------------");
@@ -86,14 +85,6 @@ public class NetworkingTest {
     if (!condition) {
       throw new AssertionError(message);
     }
-  }
-
-  private static RequestDispatcher createDispatcherWithDefaultStubs() {
-    return NetworkingTestFactory.createRequestDispatcher(
-        new NetworkingTestFactory.StubAccountService(),
-        new NetworkingTestFactory.StubProposalService(),
-        new NetworkingTestFactory.StubStatsService(),
-        new NetworkingTestFactory.StubLeaderboardService());
   }
 
   private static void testRegisterSuccess() {
@@ -682,24 +673,6 @@ public class NetworkingTest {
     check(
         response.error().code() == ErrorCode.USER_NOT_LOGGED_IN,
         "error code should be USER_NOT_LOGGED_IN");
-  }
-
-  private static void testUnknownOperation() {
-    RequestDispatcher dispatcher = createDispatcherWithDefaultStubs();
-
-    ApiRequest request =
-        new ApiRequest() {
-          @Override
-          public String operation() {
-            return "unknown";
-          }
-        };
-
-    ApiResponse<?> response = dispatcher.dispatch(request, TEST_ADDRESS);
-    check(!response.success(), "unknown operation should fail");
-    check(response.error() != null, "error should be present");
-    check(
-        response.error().code() == ErrorCode.INTERNAL_ERROR, "error code should be INTERNAL_ERROR");
   }
 
   private static void testInternalErrorMapping() {

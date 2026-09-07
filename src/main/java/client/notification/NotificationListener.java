@@ -5,6 +5,7 @@ import java.util.function.Consumer;
 import shared.dto.GameEndNotification;
 
 public interface NotificationListener {
-    void start(int udpPort, Consumer<GameEndNotification> onGameEnd) throws IOException;
-    void stop();
+  void start(int udpPort, Consumer<GameEndNotification> onGameEnd) throws IOException;
+
+  void stop();
 }
