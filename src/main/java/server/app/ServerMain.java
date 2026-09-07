@@ -72,8 +72,15 @@ public class ServerMain {
     NotificationRegistry notificationRegistry = new InMemoryNotificationRegistry();
     Gson gson = new Gson();
 
+    // inside ServerMain.main()
     AccountService accountService =
-        new AccountServiceImpl(accountRepo, hasher, tokenSigner, notificationRegistry, config);
+        new AccountServiceImpl(
+                accountRepo,
+                playerGameRepo,   // <-- new parameter
+                hasher,
+                tokenSigner,
+                notificationRegistry,
+                config);
     GameClock gameClock = new GameClockImpl(gameDurationMillis);
     ProposalService proposalService =
         new ProposalServiceImpl(accountService, gameRepo, gameClock, playerGameRepo);

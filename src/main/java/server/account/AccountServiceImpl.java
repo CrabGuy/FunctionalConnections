@@ -9,96 +9,98 @@ import server.account.exceptions.UsernameAlreadyRegisteredException;
 import server.dto.Account;
 import server.dto.AccountPrincipal;
 import server.dto.ServerConfig;
+import server.game.PlayerGameRepository;
 import shared.dto.LoginData;
 import shared.dto.RegisterData;
 import shared.dto.UpdateCredentialsData;
 
 public record AccountServiceImpl(
-    AccountRepository accountRepository,
-    PasswordHasher passwordHasher,
-    TokenSigner tokenSigner,
-    NotificationRegistry notificationRegistry,
-    ServerConfig config)
-    implements AccountService {
+        AccountRepository accountRepository,
+        PlayerGameRepository playerGameRepository,
+        PasswordHasher passwordHasher,
+        TokenSigner tokenSigner,
+        NotificationRegistry notificationRegistry,
+        ServerConfig config)
+        implements AccountService {
 
-  @Override
-  public synchronized RegisterData register(String username, String password)
-      throws UsernameAlreadyRegisteredException {
-    if (accountRepository.existsByUsername(username)) {
-      throw new UsernameAlreadyRegisteredException(username);
+    @Override
+    public synchronized RegisterData register(String username, String password)
+            throws UsernameAlreadyRegisteredException {
+        if (accountRepository.existsByUsername(username)) {
+            throw new UsernameAlreadyRegisteredException(username);
+        }
+        String hashed = passwordHasher.hash(password);
+        accountRepository.save(new Account(username, hashed));
+        return new RegisterData(username);
     }
-    String hashed = passwordHasher.hash(password);
-    accountRepository.save(new Account(username, hashed));
-    return new RegisterData(username);
-  }
 
-  @Override
-  public synchronized LoginData login(
-      String username, String password, int udpPort, String remoteAddress)
-      throws IncorrectPasswordException {
-    Optional<Account> opt = accountRepository.findAccountByUsername(username);
-    if (opt.isEmpty() || !passwordHasher.matches(password, opt.get().passwordHash())) {
-      throw new IncorrectPasswordException(username);
+    @Override
+    public synchronized LoginData login(
+            String username, String password, int udpPort, String remoteAddress)
+            throws IncorrectPasswordException {
+        Optional<Account> opt = accountRepository.findAccountByUsername(username);
+        if (opt.isEmpty() || !passwordHasher.matches(password, opt.get().passwordHash())) {
+            throw new IncorrectPasswordException(username);
+        }
+        long expiresAt = System.currentTimeMillis() + config.tokenExpiryMillis();
+        String token = tokenSigner.sign(username, expiresAt);
+        InetSocketAddress udpAddress = new InetSocketAddress(remoteAddress, udpPort);
+        notificationRegistry.register(username, udpAddress);
+        return new LoginData(token);
     }
-    long expiresAt = System.currentTimeMillis() + config.tokenExpiryMillis();
-    String token = tokenSigner.sign(username, expiresAt);
-    InetSocketAddress udpAddress = new InetSocketAddress(remoteAddress, udpPort);
-    notificationRegistry.register(username, udpAddress);    
-    return new LoginData(token);
-  }
 
-  @Override
-  public synchronized void logout(String accountToken) throws InvalidTokenException {
-    AccountPrincipal principal = tokenSigner.verify(accountToken);
-    notificationRegistry.unregister(principal.username());
-  }
-
-  @Override
-  public synchronized UpdateCredentialsData updateCredentials(
-      String oldUsername, String newUsername, String oldPassword, String newPassword)
-      throws IncorrectPasswordException, NewUsernameAlreadyTakenException {
-    Optional<Account> opt = accountRepository.findAccountByUsername(oldUsername);
-    if (opt.isEmpty() || !passwordHasher.matches(oldPassword, opt.get().passwordHash())) {
-      throw new IncorrectPasswordException(oldUsername);
+    @Override
+    public synchronized void logout(String accountToken) throws InvalidTokenException {
+        AccountPrincipal principal = tokenSigner.verify(accountToken);
+        notificationRegistry.unregister(principal.username());
     }
-    Account current = opt.get();
-    String updatedUsername = resolveUsername(oldUsername, newUsername);
-    String updatedHash = resolveHash(current.passwordHash(), newPassword);
 
-    Account updatedAccount = new Account(updatedUsername, updatedHash);
-    accountRepository.save(updatedAccount);
-    if (!updatedUsername.equals(oldUsername)) {
-      accountRepository.deleteByUsername(oldUsername);
-      final String finalUpdatedUsername = updatedUsername;
-      Optional<InetSocketAddress> udp = notificationRegistry.lookup(oldUsername);
-      udp.ifPresent(
-          addr -> {
-            notificationRegistry.unregister(oldUsername);
-            notificationRegistry.register(finalUpdatedUsername, addr);
-          });
+    @Override
+    public synchronized UpdateCredentialsData updateCredentials(
+            String oldUsername, String newUsername, String oldPassword, String newPassword)
+            throws IncorrectPasswordException, NewUsernameAlreadyTakenException {
+        Optional<Account> opt = accountRepository.findAccountByUsername(oldUsername);
+        if (opt.isEmpty() || !passwordHasher.matches(oldPassword, opt.get().passwordHash())) {
+            throw new IncorrectPasswordException(oldUsername);
+        }
+        Account current = opt.get();
+        String updatedUsername = resolveUsername(oldUsername, newUsername);
+        String updatedHash = resolveHash(current.passwordHash(), newPassword);
+        Account updatedAccount = new Account(updatedUsername, updatedHash);
+        accountRepository.save(updatedAccount);
+        if (!updatedUsername.equals(oldUsername)) {
+            // Preserve game history under the new username
+            playerGameRepository.updateUsername(oldUsername, updatedUsername);
+            accountRepository.deleteByUsername(oldUsername);
+            final String finalUpdatedUsername = updatedUsername;
+            Optional<InetSocketAddress> udp = notificationRegistry.lookup(oldUsername);
+            udp.ifPresent(addr -> {
+                notificationRegistry.unregister(oldUsername);
+                notificationRegistry.register(finalUpdatedUsername, addr);
+            });
+        }
+        return new UpdateCredentialsData(updatedUsername);
     }
-    return new UpdateCredentialsData(updatedUsername);
-  }
 
-  @Override
-  public AccountPrincipal resolve(String accountToken) throws InvalidTokenException {
-    return tokenSigner.verify(accountToken);
-  }
+    @Override
+    public AccountPrincipal resolve(String accountToken) throws InvalidTokenException {
+        return tokenSigner.verify(accountToken);
+    }
 
-  private String resolveUsername(String oldUsername, String newUsername) {
-    if (newUsername == null || newUsername.isEmpty() || newUsername.equals(oldUsername)) {
-      return oldUsername;
+    private String resolveUsername(String oldUsername, String newUsername) {
+        if (newUsername == null || newUsername.isEmpty() || newUsername.equals(oldUsername)) {
+            return oldUsername;
+        }
+        if (accountRepository.existsByUsername(newUsername)) {
+            throw new NewUsernameAlreadyTakenException(newUsername);
+        }
+        return newUsername;
     }
-    if (accountRepository.existsByUsername(newUsername)) {
-      throw new NewUsernameAlreadyTakenException(newUsername);
-    }
-    return newUsername;
-  }
 
-  private String resolveHash(String oldHash, String newPassword) {
-    if (newPassword == null || newPassword.isEmpty()) {
-      return oldHash;
+    private String resolveHash(String oldHash, String newPassword) {
+        if (newPassword == null || newPassword.isEmpty()) {
+            return oldHash;
+        }
+        return passwordHasher.hash(newPassword);
     }
-    return passwordHasher.hash(newPassword);
-  }
 }
