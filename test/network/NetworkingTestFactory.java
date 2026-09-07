@@ -61,6 +61,11 @@ public class NetworkingTestFactory {
     public GameInfoData getGameInfo(String accountToken, Long gameId) {
       throw new UnsupportedOperationException();
     }
+
+    @Override
+    public void touchCurrentGame(String accountToken) {
+      throw new UnsupportedOperationException();
+    }
   }
 
   /** Stub StatsService – all methods throw UnsupportedOperationException unless overridden. */

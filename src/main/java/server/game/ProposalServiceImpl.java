@@ -79,6 +79,13 @@ public final class ProposalServiceImpl implements ProposalService {
           updatedSummary);
     }
   }
+  
+  @Override
+    public void touchCurrentGame(String accountToken) throws InvalidTokenException {
+        AccountPrincipal principal = accountService.resolve(accountToken);
+        long currentGameId = gameClock.currentGameId(System.currentTimeMillis());
+        playerGameRepository.findOrCreate(principal.username(), currentGameId);
+    }
 
   @Override
   public GameInfoData getGameInfo(String accountToken, Long gameId)

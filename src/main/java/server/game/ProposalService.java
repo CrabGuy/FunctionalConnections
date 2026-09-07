@@ -17,4 +17,6 @@ public interface ProposalService {
 
   GameInfoData getGameInfo(String accountToken, Long gameId)
       throws InvalidTokenException, GameNotFoundException;
+      
+    void touchCurrentGame(String accountToken) throws InvalidTokenException;
 }

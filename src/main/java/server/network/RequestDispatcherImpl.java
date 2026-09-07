@@ -47,6 +47,8 @@ public record RequestDispatcherImpl(
                       req.udpPort(),
                       remoteAddress.getAddress().getHostAddress())
                   .accountToken();
+
+            proposalService.touchCurrentGame(token);
           yield success(new LoginData(token));
         }
         case LogoutRequest req -> {

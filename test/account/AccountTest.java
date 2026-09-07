@@ -179,7 +179,7 @@ public class AccountTest {
 
     check(
         data.accountToken() != null && !data.accountToken().isBlank(),
-        "Login should return a non‑blank token");
+        "Login should return a non-blank token");
 
     Optional<InetSocketAddress> registered = notifReg.lookup("carol");
     check(registered.isPresent(), "UDP address should be registered");

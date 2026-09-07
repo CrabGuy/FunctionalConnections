@@ -147,10 +147,18 @@ public class NetworkingTest {
             return new LoginData("token-abc");
           }
         };
+        
+    ProposalService proposalService =
+        new NetworkingTestFactory.StubProposalService() {
+          @Override
+          public void touchCurrentGame(String accountToken) {
+          }
+        };
+
     RequestDispatcher dispatcher =
         NetworkingTestFactory.createRequestDispatcher(
             accountService,
-            new NetworkingTestFactory.StubProposalService(),
+            proposalService,
             new NetworkingTestFactory.StubStatsService(),
             new NetworkingTestFactory.StubLeaderboardService());
 

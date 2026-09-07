@@ -75,96 +75,96 @@ public record StatsServiceImpl(
         averageScore);
   }
 
-  record Performance(ScoreCalculator.Outcome outcome, int mistakes) {}
+    record Performance(long gameId, ScoreCalculator.Outcome outcome, int mistakes) {}
+    @Override
+    public PlayerStatsData getPlayerStats(String accountToken) throws InvalidTokenException {
+        AccountPrincipal principal = accountService.resolve(accountToken);
+        String username = principal.username();
 
-  @Override
-  public PlayerStatsData getPlayerStats(String accountToken) throws InvalidTokenException {
-    AccountPrincipal principal = accountService.resolve(accountToken);
-    String username = principal.username();
-    List<Performance> performances =
-        playerGameRepository.findPlayerGameByUsername(username).stream()
-            .sorted(Comparator.comparingLong(PlayerGame::gameId))
-            .flatMap(pg -> toPerformance(pg).stream())
-            .toList();
+        long now = System.currentTimeMillis();
+        long currentGameId = gameClock.currentGameId(now);
 
-    int puzzlesCompleted = performances.size();
-    long wins =
-        performances.stream()
+        List<Performance> allPerformances =
+            playerGameRepository.findPlayerGameByUsername(username).stream()
+                .sorted(Comparator.comparingLong(PlayerGame::gameId))
+                .flatMap(pg -> toPerformance(pg).stream())
+                .filter(p -> !(p.gameId() == currentGameId 
+                            && p.outcome() == ScoreCalculator.Outcome.INCOMPLETE 
+                            && !gameClock.isCompleted(p.gameId(), now)))
+                .toList();
+
+        int puzzlesCompleted = allPerformances.size();
+        long wins = allPerformances.stream()
             .filter(p -> p.outcome() == ScoreCalculator.Outcome.WON)
             .count();
-    long losses =
-        performances.stream()
+        long losses = allPerformances.stream()
             .filter(p -> p.outcome() == ScoreCalculator.Outcome.LOST)
             .count();
-    long notFinished =
-        performances.stream()
+        long notFinished = allPerformances.stream()
             .filter(p -> p.outcome() == ScoreCalculator.Outcome.INCOMPLETE)
             .count();
-    long perfectPuzzles =
-        performances.stream()
+        long perfectPuzzles = allPerformances.stream()
             .filter(p -> p.outcome() == ScoreCalculator.Outcome.WON && p.mistakes() == 0)
             .count();
 
-    Map<Integer, Long> mistakeCounts =
-        performances.stream()
+        Map<Integer, Long> mistakeCounts = allPerformances.stream()
             .filter(p -> p.outcome() == ScoreCalculator.Outcome.WON)
             .collect(Collectors.groupingBy(Performance::mistakes, Collectors.counting()));
-    Map<Integer, Integer> wonByMistakes =
-        IntStream.rangeClosed(0, 3)
-            .boxed()
-            .collect(Collectors.toMap(i -> i, i -> mistakeCounts.getOrDefault(i, 0L).intValue()));
-    MistakeHistogram mistakeHistogram =
-        new MistakeHistogram(wonByMistakes, (int) losses, (int) notFinished);
+        Map<Integer, Integer> wonByMistakes =
+            IntStream.rangeClosed(0, 3)
+                .boxed()
+                .collect(Collectors.toMap(i -> i, i -> mistakeCounts.getOrDefault(i, 0L).intValue()));
 
-    double winRate = puzzlesCompleted == 0 ? 0.0 : wins / (double) puzzlesCompleted;
-    double lossRate = puzzlesCompleted == 0 ? 0.0 : losses / (double) puzzlesCompleted;
+        MistakeHistogram mistakeHistogram =
+            new MistakeHistogram(wonByMistakes, (int) losses, (int) notFinished);
 
-    record StreakAccumulator(int current, int max) {
-      StreakAccumulator next(boolean won) {
-        if (won) {
-          int newCurrent = current + 1;
-          return new StreakAccumulator(newCurrent, Math.max(max, newCurrent));
-        } else {
-          return new StreakAccumulator(0, max);
+        double winRate = puzzlesCompleted == 0 ? 0.0 : wins / (double) puzzlesCompleted;
+        double lossRate = puzzlesCompleted == 0 ? 0.0 : losses / (double) puzzlesCompleted;
+
+        record StreakAccumulator(int current, int max) {
+            StreakAccumulator next(boolean won) {
+                if (won) {
+                    int newCurrent = current + 1;
+                    return new StreakAccumulator(newCurrent, Math.max(max, newCurrent));
+                } else {
+                    return new StreakAccumulator(0, max);
+                }
+            }
         }
-      }
+
+        StreakAccumulator acc =
+            allPerformances.stream()
+                .reduce(
+                    new StreakAccumulator(0, 0),
+                    (a, p) -> a.next(p.outcome() == ScoreCalculator.Outcome.WON),
+                    (a, b) ->
+                        new StreakAccumulator(
+                            Math.max(a.current(), b.current()), Math.max(a.max(), b.max())));
+        int maxStreak = acc.max();
+        int currentStreak =
+            (int)
+                IntStream.iterate(allPerformances.size() - 1, i -> i >= 0, i -> i - 1)
+                    .takeWhile(i -> allPerformances.get(i).outcome() == ScoreCalculator.Outcome.WON)
+                    .count();
+
+        return new PlayerStatsData(
+            puzzlesCompleted,
+            winRate,
+            lossRate,
+            currentStreak,
+            maxStreak,
+            (int) perfectPuzzles,
+            mistakeHistogram);
     }
-
-    StreakAccumulator acc =
-        performances.stream()
-            .reduce(
-                new StreakAccumulator(0, 0),
-                (a, p) -> a.next(p.outcome() == ScoreCalculator.Outcome.WON),
-                (a, b) ->
-                    new StreakAccumulator(
-                        Math.max(a.current(), b.current()), Math.max(a.max(), b.max())));
-
-    int maxStreak = acc.max();
-    int currentStreak =
-        (int)
-            IntStream.iterate(performances.size() - 1, i -> i >= 0, i -> i - 1)
-                .takeWhile(i -> performances.get(i).outcome() == ScoreCalculator.Outcome.WON)
-                .count();
-
-    return new PlayerStatsData(
-        puzzlesCompleted,
-        winRate,
-        lossRate,
-        currentStreak,
-        maxStreak,
-        (int) perfectPuzzles,
-        mistakeHistogram);
-  }
-
   private Optional<Performance> toPerformance(PlayerGame pg) {
     long gameId = pg.gameId();
     if (!gameRepository.exists(gameId)) {
-      return Optional.empty();
+        return Optional.empty();
     }
     GameWordGroups gameWordGroups = gameRepository.loadById(gameId);
     List<Set<String>> correctGroups = GameLogic.correctGroupsAsSets(gameWordGroups);
     ScoreCalculator.Outcome outcome = ScoreCalculator.outcome(pg, correctGroups);
     ScoreCalculator.CorrectWrongCount counts = ScoreCalculator.countCorrectWrong(pg, correctGroups);
-    return Optional.of(new Performance(outcome, counts.wrong()));
-  }
+    return Optional.of(new Performance(gameId, outcome, counts.wrong()));
+}
 }

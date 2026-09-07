@@ -66,7 +66,7 @@ public class ClientConnection {
     }
   }
 
-  public void handleWrite() {
+  public synchronized void handleWrite() {
     try {
       while (!writeQueue.isEmpty()) {
         ByteBuffer buf = writeQueue.peek();

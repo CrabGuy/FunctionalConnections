@@ -40,8 +40,24 @@ public final class LoggedInMenu {
                 continue;
             }
 
+            // Fetch and display current game information
+            ApiResponse<GameInfoData> currentGameResponse =
+                    ClientActions.fetchGameInfo(connectionManager, session.accountToken(), null);
+
             TerminalScreen.clear();
             output.println("Logged-in Menu");
+
+            if (currentGameResponse.success()) {
+                output.println();
+                output.println(OutputFormatter.formatGameInfo(
+                        currentGameResponse.data(), System.currentTimeMillis()));
+            } else {
+                output.println();
+                output.println("Current game info unavailable: "
+                        + currentGameResponse.error().message());
+            }
+
+            output.println();
             output.println("1. Play Game");
             output.println("2. Game Info");
             output.println("3. Game Stats");
@@ -79,7 +95,6 @@ public final class LoggedInMenu {
         output.flush();
         String gameIdStr = input.readLine();
         Long gameId = gameIdStr.isBlank() ? null : Long.parseLong(gameIdStr);
-
         TerminalScreen.clear();
         ApiResponse<GameInfoData> response =
                 ClientActions.fetchGameInfo(connectionManager, session.accountToken(), gameId);
@@ -96,7 +111,6 @@ public final class LoggedInMenu {
         output.flush();
         String gameIdStr = input.readLine();
         Long gameId = gameIdStr.isBlank() ? null : Long.parseLong(gameIdStr);
-
         TerminalScreen.clear();
         ApiResponse<GameStatsData> response =
                 ClientActions.fetchGameStats(connectionManager, session.accountToken(), gameId);
@@ -116,7 +130,6 @@ public final class LoggedInMenu {
         String choice = input.readLine();
         String playerName = null;
         Integer topK = null;
-
         if (choice.equals("1")) {
             output.print("How many top players? (leave blank for all): ");
             output.flush();
@@ -133,7 +146,6 @@ public final class LoggedInMenu {
             pressEnterToContinue();
             return;
         }
-
         TerminalScreen.clear();
         ApiResponse<LeaderboardData> response =
                 ClientActions.fetchLeaderboard(
@@ -171,7 +183,6 @@ public final class LoggedInMenu {
         output.print("New password: ");
         output.flush();
         String newPassword = input.readLine();
-
         TerminalScreen.clear();
         ClientActions.UpdateCredentialsResult result =
                 ClientActions.updateCredentials(

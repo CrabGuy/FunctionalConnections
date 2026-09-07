@@ -43,7 +43,7 @@ public record AccountServiceImpl(
     long expiresAt = System.currentTimeMillis() + config.tokenExpiryMillis();
     String token = tokenSigner.sign(username, expiresAt);
     InetSocketAddress udpAddress = new InetSocketAddress(remoteAddress, udpPort);
-    notificationRegistry.register(username, udpAddress);
+    notificationRegistry.register(username, udpAddress);    
     return new LoginData(token);
   }
 

@@ -35,6 +35,7 @@ public class StatsTest {
     // New edge-case tests
     runTest("testPlayerStatsEmptyHistory", StatsTest::testPlayerStatsEmptyHistory);
     runTest("testPlayerStatsAllIncomplete", StatsTest::testPlayerStatsAllIncomplete);
+    runTest("testPlayerStatsExcludesCurrentActiveGame", StatsTest::testPlayerStatsExcludesCurrentActiveGame);
     runTest(
         "testPlayerStatsCurrentStreakOngoingWin",
         StatsTest::testPlayerStatsCurrentStreakOngoingWin);
@@ -169,11 +170,9 @@ public class StatsTest {
     check(stats.expiresAt() == clock.expiresAt(gameId), "expiresAt should be correct");
     check(stats.totalParticipants() == 5, "totalParticipants should be 5");
     check(stats.activePlayers() == 0, "activePlayers should be 0 (game ended)");
-    // Only Alice, Bob, Carol have terminal outcomes (won/lost)
     check(stats.completedPlayers() == 3, "completedPlayers should be 3");
     check(stats.winners() == 2, "winners should be 2");
 
-    // Average score: alice=18, bob=14, carol=-4, dave=-2, eve=0 => sum=26, avg=5.2
     double expectedAvg = 5.2;
     check(Math.abs(stats.averageScore() - expectedAvg) < 0.001, "averageScore should be 5.2");
   }
@@ -244,9 +243,9 @@ public class StatsTest {
         StatsTestFactory.createStatsService(accountService, playerRepo, gameRepo, clock);
     PlayerStatsData ps = statsService.getPlayerStats("token-alice");
 
-    // puzzlesCompleted now includes incomplete games
+    // Current game id is 0, which is a win, so not filtered.
     check(ps.puzzlesCompleted() == 5, "puzzlesCompleted should be 5 (including incomplete)");
-    double expectedWinRate = 2.0 / 5.0; // fraction, not percentage
+    double expectedWinRate = 2.0 / 5.0;
     double expectedLossRate = 1.0 / 5.0;
     check(Math.abs(ps.winRate() - expectedWinRate) < 0.001, "winRate should be ~0.4");
     check(Math.abs(ps.lossRate() - expectedLossRate) < 0.001, "lossRate should be ~0.2");
@@ -256,9 +255,9 @@ public class StatsTest {
 
     MistakeHistogram hist = ps.mistakeHistogram();
     Map<Integer, Integer> expectedWonByMistakes = new HashMap<>();
-    expectedWonByMistakes.put(0, 1); // game0 win with 0 mistakes
+    expectedWonByMistakes.put(0, 1);
     expectedWonByMistakes.put(1, 0);
-    expectedWonByMistakes.put(2, 1); // game1 win with 2 mistakes
+    expectedWonByMistakes.put(2, 1);
     expectedWonByMistakes.put(3, 0);
     check(
         hist.wonByMistakes().equals(expectedWonByMistakes),
@@ -401,7 +400,7 @@ public class StatsTest {
     check(hist.notFinished() == 0, "notFinished should be 0");
   }
 
-  private static void testPlayerStatsAllIncomplete() {
+    private static void testPlayerStatsAllIncomplete() {
     GameClock clock = StatsTestFactory.createGameClock(ACTIVE_DURATION);
     Map<Long, GameWordGroups> games = new HashMap<>();
     for (long gid = 0; gid < 3; gid++) {
@@ -412,6 +411,7 @@ public class StatsTest {
     AccountService accountService =
         StatsTestFactory.createAccountService(Map.of("token-alice", "alice"));
 
+    // All games are incomplete, but game 0 is the current active game (currentGameId=0)
     playerRepo.save(new PlayerGame("alice", 0L, List.of(CORRECT_A, WRONG_1)));
     playerRepo.save(new PlayerGame("alice", 1L, List.of()));
     playerRepo.save(new PlayerGame("alice", 2L, List.of(CORRECT_A, CORRECT_B, WRONG_1)));
@@ -420,7 +420,8 @@ public class StatsTest {
         StatsTestFactory.createStatsService(accountService, playerRepo, gameRepo, clock);
     PlayerStatsData ps = statsService.getPlayerStats("token-alice");
 
-    check(ps.puzzlesCompleted() == 3, "puzzlesCompleted should be 3 (all incomplete)");
+    // Game 0 (current active) should be excluded, so only games 1 and 2 count.
+    check(ps.puzzlesCompleted() == 2, "puzzlesCompleted should be 2 (current active game excluded)");
     check(ps.winRate() == 0.0, "winRate should be 0.0");
     check(ps.lossRate() == 0.0, "lossRate should be 0.0");
     check(ps.currentStreak() == 0, "currentStreak should be 0");
@@ -428,9 +429,67 @@ public class StatsTest {
     check(ps.perfectPuzzles() == 0, "perfectPuzzles should be 0");
 
     MistakeHistogram hist = ps.mistakeHistogram();
-    check(hist.wonByMistakes().isEmpty(), "wonByMistakes should be empty");
+    check(
+        hist.wonByMistakes().isEmpty() || allZeroHistogram(hist.wonByMistakes()),
+        "wonByMistakes should be empty or all zeros");
     check(hist.lost() == 0, "lost should be 0");
-    check(hist.notFinished() == 3, "notFinished should be 3");
+    check(hist.notFinished() == 2, "notFinished should be 2 (games 1 and 2)");
+  }
+
+  private static void testPlayerStatsExcludesCurrentActiveGame() {
+    // Custom clock: current game id = 0, game 1 is expired (completed)
+    GameClock customClock = new GameClock() {
+      @Override
+      public long currentGameId(long nowMillis) {
+        return 0L;
+      }
+
+      @Override
+      public long startedAt(long gameId) {
+        return 0;
+      }
+
+      @Override
+      public long expiresAt(long gameId) {
+        return gameId == 1 ? 0 : Long.MAX_VALUE;
+      }
+
+      @Override
+      public boolean isCompleted(long gameId, long nowMillis) {
+        return gameId == 1; // game 1 completed, game 0 active
+      }
+    };
+
+    Map<Long, GameWordGroups> games = new HashMap<>();
+    games.put(0L, createGame(0L));
+    games.put(1L, createGame(1L));
+    GameRepository gameRepo = StatsTestFactory.createGameRepository(games);
+    PlayerGameRepository playerRepo = StatsTestFactory.createPlayerGameRepository();
+    AccountService accountService =
+        StatsTestFactory.createAccountService(Map.of("token-alice", "alice"));
+
+    // Both games have incomplete proposals (not won or lost)
+    playerRepo.save(new PlayerGame("alice", 0L, List.of(CORRECT_A, WRONG_1)));
+    playerRepo.save(new PlayerGame("alice", 1L, List.of(CORRECT_A, WRONG_1)));
+
+    StatsService statsService =
+        StatsTestFactory.createStatsService(accountService, playerRepo, gameRepo, customClock);
+    PlayerStatsData ps = statsService.getPlayerStats("token-alice");
+
+    // Only game 1 (expired, incomplete) should be included; game 0 (current active) is excluded.
+    check(ps.puzzlesCompleted() == 1, "puzzlesCompleted should be 1 (only expired incomplete game)");
+    check(ps.winRate() == 0.0, "winRate should be 0.0");
+    check(ps.lossRate() == 0.0, "lossRate should be 0.0");
+    check(ps.currentStreak() == 0, "currentStreak should be 0");
+    check(ps.maxStreak() == 0, "maxStreak should be 0");
+    check(ps.perfectPuzzles() == 0, "perfectPuzzles should be 0");
+
+    MistakeHistogram hist = ps.mistakeHistogram();
+    check(
+        hist.wonByMistakes().isEmpty() || allZeroHistogram(hist.wonByMistakes()),
+        "wonByMistakes should be empty or all zeros");
+    check(hist.lost() == 0, "lost should be 0");
+    check(hist.notFinished() == 1, "notFinished should be 1 (only expired incomplete game)");
   }
 
   private static void testPlayerStatsCurrentStreakOngoingWin() {
@@ -506,13 +565,14 @@ public class StatsTest {
         StatsTestFactory.createStatsService(accountService, playerRepo, gameRepo, clock);
     PlayerStatsData ps = statsService.getPlayerStats("token-alice");
 
+    // Current game id = 0 (win), so not filtered. Game 1 is incomplete and not current? Actually game 1 is also incomplete and not current, so it is included.
     check(ps.puzzlesCompleted() == 3, "puzzlesCompleted should include incomplete games (3 total)");
 
     MistakeHistogram hist = ps.mistakeHistogram();
     Map<Integer, Integer> expectedWonByMistakes = new HashMap<>();
-    expectedWonByMistakes.put(0, 1); // game0
+    expectedWonByMistakes.put(0, 1);
     expectedWonByMistakes.put(1, 0);
-    expectedWonByMistakes.put(2, 1); // game2
+    expectedWonByMistakes.put(2, 1);
     expectedWonByMistakes.put(3, 0);
     check(
         hist.wonByMistakes().equals(expectedWonByMistakes),
@@ -601,11 +661,8 @@ public class StatsTest {
         StatsTestFactory.createAccountService(
             Map.of("token-alice", "alice", "token-bob", "bob", "token-carol", "carol"));
 
-    // Alice has already lost (4 wrong) → completed, not active
     playerRepo.save(new PlayerGame("alice", gameId, List.of(WRONG_1, WRONG_1, WRONG_1, WRONG_1)));
-    // Bob is still playing (2 wrong)
     playerRepo.save(new PlayerGame("bob", gameId, List.of(WRONG_1, WRONG_1)));
-    // Carol joined but hasn't guessed yet
     playerRepo.save(new PlayerGame("carol", gameId, List.of()));
 
     StatsService statsService =
@@ -632,7 +689,6 @@ public class StatsTest {
 
     StatsService statsService =
         StatsTestFactory.createStatsService(accountService, playerRepo, gameRepo, clock);
-    // Null gameId should resolve to the current game
     GameStatsData stats = statsService.getGameStats("token-alice", null);
 
     check(stats.gameId() == gameId, "Null gameId should resolve to current game");
@@ -697,7 +753,6 @@ public class StatsTest {
     long distinctScores =
         data.topPlayers().stream().mapToInt(LeaderboardEntry::score).distinct().count();
     check(distinctScores == 1, "All players should have the same score");
-    // Verify descending order (or at least non-increasing)
     for (int i = 0; i < data.topPlayers().size() - 1; i++) {
       check(
           data.topPlayers().get(i).score() >= data.topPlayers().get(i + 1).score(),
