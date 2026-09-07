@@ -17,7 +17,7 @@ public final class LogoutCommand implements Command {
     if (args.size() != 1) {
       throw new CommandException("Usage: logout");
     }
-    if (context.session().accountToken() == null || context.session().accountToken().isBlank()) {
+    if (!context.session().isLoggedIn()) {
       throw new CommandException("You must be logged in for this command.");
     }
     @SuppressWarnings("unchecked")

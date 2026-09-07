@@ -1,12 +1,14 @@
 package server.network;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import server.account.NotificationRegistry;
 import server.dto.GameWordGroups;
 import server.dto.PlayerGame;
 import server.dto.WordGroup;
 import server.game.GameClock;
+import server.game.GameLogic;
 import server.game.GameRepository;
 import server.game.PlayerGameRepository;
 import server.game.ProposalService;
@@ -67,7 +69,6 @@ public final class GameTransitionWatcherImpl implements GameTransitionWatcher {
 
   private void handleGameTransition(long endedGameId) {
     Map<String, GameInfoData> results = new HashMap<>();
-
     for (PlayerGame pg : playerGameRepository.findByGame(endedGameId)) {
       try {
         GameInfoData info = proposalService.getGameInfoForUsername(endedGameId, pg.username());
@@ -75,33 +76,22 @@ public final class GameTransitionWatcherImpl implements GameTransitionWatcher {
       } catch (Exception e) {
       }
     }
-
     GameWordGroups gameWordGroups = gameRepository.loadById(endedGameId);
     List<List<String>> correctGroups =
-        gameWordGroups.groups().stream()
-            .map(WordGroup::words)
-            .collect(Collectors.toUnmodifiableList());
+        gameWordGroups.groups().stream().map(WordGroup::words).toList();
 
     for (String username : notificationRegistry.getRegisteredUsernames()) {
       if (!results.containsKey(username)) {
         results.put(username, buildEmptyGameInfo(endedGameId, correctGroups));
       }
     }
-
     notificationService.notifyGameEnd(results);
   }
 
   private GameInfoData buildEmptyGameInfo(long gameId, List<List<String>> correctGroups) {
     GameWordGroups game = gameRepository.loadById(gameId);
-    List<String> words =
-        game.groups().stream().flatMap(g -> g.words().stream()).collect(Collectors.toList());
-    Collections.shuffle(words, new Random(gameId));
+    List<String> words = GameLogic.shuffledWords(game, gameId);
     return new GameInfoData(
-        gameId,
-        gameClock.expiresAt(gameId),
-        List.copyOf(words),
-        List.of(),
-        List.of(),
-        correctGroups);
+        gameId, gameClock.expiresAt(gameId), words, List.of(), List.of(), correctGroups);
   }
 }

@@ -1,12 +1,13 @@
 package client.formatting;
 
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import shared.dto.GameInfoData;
+import shared.game.GameRules;
 
 public final class GameInfoCalculator {
+
   public enum ProposalOutcome {
     CORRECT,
     WRONG,
@@ -24,26 +25,20 @@ public final class GameInfoCalculator {
   }
 
   public static int score(GameInfoData info) {
-    return correctProposalCount(info) * 6 - mistakeCount(info) * 4;
+    return GameRules.score(correctProposalCount(info), mistakeCount(info));
   }
 
   public static List<String> remainingWords(GameInfoData info) {
-    Set<String> grouped = new LinkedHashSet<>();
-    info.correctGuesses().forEach(grouped::addAll);
-    List<String> remaining = new ArrayList<>();
-    for (String word : info.words()) {
-      if (!grouped.contains(word)) {
-        remaining.add(word);
-      }
-    }
-    return List.copyOf(remaining);
+    Set<String> grouped =
+        info.correctGuesses().stream().flatMap(Set::stream).collect(Collectors.toSet());
+    return info.words().stream().filter(word -> !grouped.contains(word)).toList();
   }
 
   public static String status(GameInfoData info, long nowMillis) {
-    if (correctProposalCount(info) >= 3) {
+    if (GameRules.isWon(correctProposalCount(info))) {
       return "WON";
     }
-    if (mistakeCount(info) >= 4) {
+    if (GameRules.isLost(mistakeCount(info))) {
       return "LOST";
     }
     return info.expiresAt() <= nowMillis ? "INCOMPLETE" : "ACTIVE";

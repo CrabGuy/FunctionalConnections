@@ -12,15 +12,25 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.ExecutorService;
-import shared.dto.*;
+import shared.dto.ApiError;
+import shared.dto.ApiRequest;
+import shared.dto.ApiResponse;
+import shared.dto.ErrorCode;
+import shared.dto.LoginRequest;
+import shared.dto.LogoutRequest;
+import shared.dto.RegisterRequest;
+import shared.dto.RequestGameInfoRequest;
+import shared.dto.RequestGameStatsRequest;
+import shared.dto.RequestLeaderboardRequest;
+import shared.dto.RequestPlayerStatsRequest;
+import shared.dto.SubmitProposalRequest;
+import shared.dto.UpdateCredentialsRequest;
 
 public class ClientConnection {
-
   private final SocketChannel channel;
   private final RequestDispatcher dispatcher;
   private final Gson gson;
   private final Selector selector;
-
   private final ByteBuffer readBuffer = ByteBuffer.allocate(8192);
   private final Queue<ByteBuffer> writeQueue = new ArrayDeque<>();
   private boolean writePending = false;
@@ -33,7 +43,6 @@ public class ClientConnection {
     this.selector = selector;
   }
 
-  /** Called by the selector thread when the channel is readable. */
   public void handleRead(ExecutorService workerPool) {
     try {
       int bytesRead = channel.read(readBuffer);
@@ -47,7 +56,7 @@ public class ClientConnection {
         if (newlinePos == -1) break;
         byte[] requestBytes = new byte[newlinePos - readBuffer.position()];
         readBuffer.get(requestBytes);
-        readBuffer.get(); // consume newline
+        readBuffer.get();
         String requestJson = new String(requestBytes, StandardCharsets.UTF_8);
         workerPool.submit(() -> processRequest(requestJson));
       }
@@ -57,14 +66,13 @@ public class ClientConnection {
     }
   }
 
-  /** Called by the selector thread when the channel is writable. */
   public void handleWrite() {
     try {
       while (!writeQueue.isEmpty()) {
         ByteBuffer buf = writeQueue.peek();
         channel.write(buf);
         if (buf.hasRemaining()) {
-          return; // partial write – try again later
+          return;
         }
         writeQueue.poll();
       }
@@ -78,22 +86,11 @@ public class ClientConnection {
     }
   }
 
-  /**
-   * Executed on a worker thread. Parses the request, calls the dispatcher, and enqueues the
-   * response.
-   */
   private void processRequest(String requestJson) {
     try {
-      // Parse JSON into the correct ApiRequest subclass
       ApiRequest request = parseRequest(requestJson);
-
-      // Get client's address
       InetSocketAddress remoteAddress = (InetSocketAddress) channel.getRemoteAddress();
-
-      // Dispatch the request
       ApiResponse<?> response = dispatcher.dispatch(request, remoteAddress);
-
-      // Serialize and enqueue the response
       String responseJson = gson.toJson(response);
       byte[] responseBytes = responseJson.getBytes(StandardCharsets.UTF_8);
       ByteBuffer outBuffer = ByteBuffer.allocate(responseBytes.length + 1);
@@ -110,10 +107,6 @@ public class ClientConnection {
     }
   }
 
-  /**
-   * Parses the JSON string into the appropriate ApiRequest subclass based on the "operation" field.
-   * This replicates the logic from the old ConnectionHandlerImpl.
-   */
   private ApiRequest parseRequest(String json) {
     JsonObject obj = gson.fromJson(json, JsonObject.class);
     String operation = obj.get("operation").getAsString();

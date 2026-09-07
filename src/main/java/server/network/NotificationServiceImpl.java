@@ -10,6 +10,7 @@ import server.account.NotificationRegistry;
 import shared.dto.GameInfoData;
 
 public final class NotificationServiceImpl implements NotificationService, AutoCloseable {
+
   private final DatagramSocket socket;
   private final NotificationRegistry registry;
   private final Gson gson;
@@ -22,20 +23,21 @@ public final class NotificationServiceImpl implements NotificationService, AutoC
 
   @Override
   public void notifyGameEnd(Map<String, GameInfoData> resultsByUsername) {
-    for (Map.Entry<String, GameInfoData> entry : resultsByUsername.entrySet()) {
-      registry
-          .lookup(entry.getKey())
-          .ifPresent(
-              address -> {
-                try {
-                  byte[] payload = gson.toJson(entry.getValue()).getBytes(StandardCharsets.UTF_8);
-                  DatagramPacket packet = new DatagramPacket(payload, payload.length, address);
-                  socket.send(packet);
-                } catch (Exception e) {
-                  // log and continue
-                }
-              });
-    }
+    resultsByUsername.forEach(
+        (username, info) ->
+            registry
+                .lookup(username)
+                .ifPresent(
+                    address -> {
+                      try {
+                        byte[] payload = gson.toJson(info).getBytes(StandardCharsets.UTF_8);
+                        DatagramPacket packet =
+                            new DatagramPacket(payload, payload.length, address);
+                        socket.send(packet);
+                      } catch (Exception e) {
+                        // ignore
+                      }
+                    }));
   }
 
   @Override

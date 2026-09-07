@@ -3,7 +3,6 @@ package server.game;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -17,6 +16,7 @@ import server.dto.Proposal;
 import server.dto.WordGroup;
 import server.game.exceptions.*;
 import shared.dto.GameInfoData;
+import shared.game.GameRules;
 
 public final class ProposalServiceImpl implements ProposalService {
   private final AccountService accountService;
@@ -54,7 +54,8 @@ public final class ProposalServiceImpl implements ProposalService {
       GameWordGroups game = gameRepository.loadById(gameId);
       PlayerGame playerGame = playerGameRepository.findOrCreate(username, gameId);
       GuessesSummary summary = summarize(playerGame, game.groups());
-      if (isPlayerFinished(summary)) {
+      if (GameRules.isWon(summary.correctGuesses().size())
+          || GameRules.isLost(summary.wrongGuesses().size())) {
         throw new PlayerAlreadyCompletedGameException(username, gameId);
       }
       validateProposal(words, game, summary);
@@ -65,12 +66,13 @@ public final class ProposalServiceImpl implements ProposalService {
       playerGameRepository.save(updatedPlayerGame);
       GuessesSummary updatedSummary = summarize(updatedPlayerGame, game.groups());
       boolean includeCorrectGroups =
-          isPlayerFinished(updatedSummary)
+          GameRules.isWon(updatedSummary.correctGuesses().size())
+              || GameRules.isLost(updatedSummary.wrongGuesses().size())
               || gameClock.isCompleted(gameId, System.currentTimeMillis());
       return buildGameInfoData(
           gameId,
           gameClock.expiresAt(gameId),
-          shuffleWords(game, gameId),
+          GameLogic.shuffledWords(game, gameId),
           updatedPlayerGame,
           game.groups(),
           includeCorrectGroups,
@@ -96,12 +98,13 @@ public final class ProposalServiceImpl implements ProposalService {
     PlayerGame playerGame = playerGameRepository.findOrCreate(username, effectiveGameId);
     GuessesSummary summary = summarize(playerGame, game.groups());
     boolean includeCorrectGroups =
-        isPlayerFinished(summary)
+        GameRules.isWon(summary.correctGuesses().size())
+            || GameRules.isLost(summary.wrongGuesses().size())
             || gameClock.isCompleted(effectiveGameId, System.currentTimeMillis());
     return buildGameInfoData(
         effectiveGameId,
         gameClock.expiresAt(effectiveGameId),
-        shuffleWords(game, effectiveGameId),
+        GameLogic.shuffledWords(game, effectiveGameId),
         playerGame,
         game.groups(),
         includeCorrectGroups,
@@ -124,11 +127,13 @@ public final class ProposalServiceImpl implements ProposalService {
     GameWordGroups game = gameRepository.loadById(gameId);
     GuessesSummary summary = summarize(playerGame, game.groups());
     boolean includeCorrectGroups =
-        isPlayerFinished(summary) || gameClock.isCompleted(gameId, System.currentTimeMillis());
+        GameRules.isWon(summary.correctGuesses().size())
+            || GameRules.isLost(summary.wrongGuesses().size())
+            || gameClock.isCompleted(gameId, System.currentTimeMillis());
     return buildGameInfoData(
         gameId,
         gameClock.expiresAt(gameId),
-        shuffleWords(game, gameId),
+        GameLogic.shuffledWords(game, gameId),
         playerGame,
         game.groups(),
         includeCorrectGroups,
@@ -163,7 +168,7 @@ public final class ProposalServiceImpl implements ProposalService {
     List<Set<String>> correct = new ArrayList<>();
     List<Set<String>> wrong = new ArrayList<>();
     for (Proposal proposal : playerGame.proposals()) {
-      if (isCorrectProposal(proposal.words(), groups)) {
+      if (GameLogic.isCorrectProposal(proposal.words(), groups)) {
         correct.add(proposal.words());
       } else {
         wrong.add(proposal.words());
@@ -172,32 +177,10 @@ public final class ProposalServiceImpl implements ProposalService {
     return new GuessesSummary(correct, wrong);
   }
 
-  private static boolean isPlayerFinished(GuessesSummary summary) {
-    return summary.correctGuesses().size() >= 3 || summary.wrongGuesses().size() >= 4;
-  }
-
-  private static boolean isCorrectProposal(Set<String> proposalWords, List<WordGroup> groups) {
-    for (WordGroup group : groups) {
-      if (Set.copyOf(group.words()).equals(proposalWords)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   private static Set<String> getAllWords(GameWordGroups game) {
     return game.groups().stream()
         .flatMap(g -> g.words().stream())
         .collect(Collectors.toUnmodifiableSet());
-  }
-
-  private static List<String> shuffleWords(GameWordGroups game, long gameId) {
-    List<String> allWords =
-        game.groups().stream().flatMap(g -> g.words().stream()).collect(Collectors.toList());
-    Random random = new Random(gameId);
-    List<String> shuffled = new ArrayList<>(allWords);
-    java.util.Collections.shuffle(shuffled, random);
-    return List.copyOf(shuffled);
   }
 
   private static GameInfoData buildGameInfoData(
@@ -210,8 +193,7 @@ public final class ProposalServiceImpl implements ProposalService {
       GuessesSummary summary) {
     List<List<String>> correctGroups = null;
     if (includeCorrectGroups) {
-      correctGroups =
-          groups.stream().map(WordGroup::words).collect(Collectors.toUnmodifiableList());
+      correctGroups = groups.stream().map(WordGroup::words).toList();
     }
     return new GameInfoData(
         gameId,

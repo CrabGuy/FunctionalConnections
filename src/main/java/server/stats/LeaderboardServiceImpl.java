@@ -1,11 +1,16 @@
 package server.stats;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import server.account.AccountService;
 import server.account.exceptions.InvalidTokenException;
 import server.dto.GameWordGroups;
 import server.dto.PlayerGame;
+import server.game.GameLogic;
 import server.game.GameRepository;
 import server.game.PlayerGameRepository;
 import shared.dto.LeaderboardData;
@@ -21,74 +26,63 @@ public record LeaderboardServiceImpl(
   public LeaderboardData getLeaderboard(String accountToken, String playerName, Integer topK)
       throws InvalidTokenException {
     accountService.resolve(accountToken);
-
-    // Per-request cache for game word groups to avoid repeated file reads
-    Map<Long, GameWordGroups> gameCache = new HashMap<>();
-
     Set<String> allUsernames = playerGameRepository.findAllUsernames();
-    List<LeaderboardEntry> allEntries = new ArrayList<>();
-    for (String username : allUsernames) {
-      List<PlayerGame> games = playerGameRepository.findPlayerGameByUsername(username);
-      int totalScore = 0;
-      for (PlayerGame pg : games) {
-        long gameId = pg.gameId();
-        if (!gameRepository.exists(gameId)) {
-          continue;
-        }
-        GameWordGroups gameWordGroups =
-            gameCache.computeIfAbsent(
-                gameId,
-                id -> {
-                  try {
-                    return gameRepository.loadById(id);
-                  } catch (Exception e) {
-                    return null;
-                  }
-                });
-        if (gameWordGroups == null) {
-          continue;
-        }
-        List<Set<String>> correctGroups =
-            gameWordGroups.groups().stream()
-                .map(group -> Set.copyOf(group.words()))
-                .collect(Collectors.toList());
-        totalScore += ScoreCalculator.score(pg, correctGroups);
-      }
-      allEntries.add(new LeaderboardEntry(username, totalScore, 0));
-    }
+    Map<String, Integer> scoresByUsername =
+        allUsernames.stream()
+            .collect(Collectors.toMap(username -> username, this::computeTotalScore));
 
-    allEntries.sort(
-        Comparator.comparingInt(LeaderboardEntry::score)
-            .reversed()
-            .thenComparing(LeaderboardEntry::username));
+    List<Map.Entry<String, Integer>> sortedEntries =
+        scoresByUsername.entrySet().stream()
+            .sorted(
+                Map.Entry.<String, Integer>comparingByValue()
+                    .reversed()
+                    .thenComparing(Map.Entry.comparingByKey()))
+            .toList();
 
-    List<LeaderboardEntry> rankedEntries = new ArrayList<>();
-    for (int i = 0; i < allEntries.size(); i++) {
-      LeaderboardEntry e = allEntries.get(i);
-      rankedEntries.add(new LeaderboardEntry(e.username(), e.score(), i + 1));
-    }
+    List<LeaderboardEntry> rankedEntries =
+        IntStream.range(0, sortedEntries.size())
+            .mapToObj(
+                i ->
+                    new LeaderboardEntry(
+                        sortedEntries.get(i).getKey(), sortedEntries.get(i).getValue(), i + 1))
+            .toList();
 
-    LeaderboardEntry requested = null;
-    if (playerName != null) {
-      for (LeaderboardEntry e : rankedEntries) {
-        if (e.username().equals(playerName)) {
-          requested = e;
-          break;
-        }
-      }
-    }
+    Optional<LeaderboardEntry> requested =
+        Optional.ofNullable(playerName)
+            .flatMap(
+                name ->
+                    rankedEntries.stream()
+                        .filter(entry -> entry.username().equals(name))
+                        .findFirst());
 
     List<LeaderboardEntry> top;
-    if (topK == null) {
+    if (topK == null || topK >= rankedEntries.size()) {
       top = rankedEntries;
     } else if (topK <= 0) {
       top = List.of();
-    } else if (topK < rankedEntries.size()) {
-      top = rankedEntries.subList(0, topK);
     } else {
-      top = rankedEntries;
+      top = List.copyOf(rankedEntries.subList(0, topK));
     }
+    return new LeaderboardData(top, requested.orElse(null), rankedEntries.size());
+  }
 
-    return new LeaderboardData(List.copyOf(top), requested, rankedEntries.size());
+  private int computeTotalScore(String username) {
+    return playerGameRepository.findPlayerGameByUsername(username).stream()
+        .flatMap(pg -> tryLoadGameAndScore(pg).stream())
+        .mapToInt(Integer::intValue)
+        .sum();
+  }
+
+  private Optional<Integer> tryLoadGameAndScore(PlayerGame pg) {
+    try {
+      if (!gameRepository.exists(pg.gameId())) {
+        return Optional.empty();
+      }
+      GameWordGroups game = gameRepository.loadById(pg.gameId());
+      List<Set<String>> correctGroups = GameLogic.correctGroupsAsSets(game);
+      return Optional.of(ScoreCalculator.score(pg, correctGroups));
+    } catch (Exception e) {
+      return Optional.empty();
+    }
   }
 }

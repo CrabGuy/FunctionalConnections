@@ -1,13 +1,19 @@
 package server.stats;
 
-import java.util.*;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import server.account.AccountService;
 import server.account.exceptions.InvalidTokenException;
 import server.dto.AccountPrincipal;
 import server.dto.GameWordGroups;
 import server.dto.PlayerGame;
 import server.game.GameClock;
+import server.game.GameLogic;
 import server.game.GameRepository;
 import server.game.PlayerGameRepository;
 import server.game.exceptions.GameNotFoundException;
@@ -25,51 +31,39 @@ public record StatsServiceImpl(
   public GameStatsData getGameStats(String accountToken, Long gameId)
       throws GameNotFoundException, InvalidTokenException {
     accountService.resolve(accountToken);
-
     long resolvedGameId =
         (gameId == null) ? gameClock.currentGameId(System.currentTimeMillis()) : gameId;
-
     if (!gameRepository.exists(resolvedGameId)) {
       throw new GameNotFoundException(resolvedGameId);
     }
-
     List<PlayerGame> entries = playerGameRepository.findByGame(resolvedGameId);
     GameWordGroups gameWordGroups = gameRepository.loadById(resolvedGameId);
-
-    List<Set<String>> correctGroups =
-        gameWordGroups.groups().stream()
-            .map(group -> Set.copyOf(group.words()))
-            .collect(Collectors.toList());
-
+    List<Set<String>> correctGroups = GameLogic.correctGroupsAsSets(gameWordGroups);
     long now = System.currentTimeMillis();
     boolean gameCompleted = gameClock.isCompleted(resolvedGameId, now);
     long expiresAt = gameClock.expiresAt(resolvedGameId);
 
     int totalParticipants = entries.size();
-    int activePlayers = 0;
-    int completedPlayers = 0;
-    int winners = 0;
-    double totalScore = 0.0;
+    List<ScoreCalculator.Outcome> outcomes =
+        entries.stream().map(pg -> ScoreCalculator.outcome(pg, correctGroups)).toList();
 
-    for (PlayerGame pg : entries) {
-      ScoreCalculator.Outcome outcome = ScoreCalculator.outcome(pg, correctGroups);
-
-      totalScore += ScoreCalculator.score(pg, correctGroups);
-
-      switch (outcome) {
-        case WON -> {
-          winners++;
-          completedPlayers++;
-        }
-        case LOST -> completedPlayers++;
-        case INCOMPLETE -> {
-          if (!gameCompleted) {
-            activePlayers++;
-          }
-        }
-      }
-    }
-
+    int winners =
+        (int) outcomes.stream().filter(outcome -> outcome == ScoreCalculator.Outcome.WON).count();
+    int completedPlayers =
+        (int)
+            outcomes.stream()
+                .filter(
+                    outcome ->
+                        outcome == ScoreCalculator.Outcome.WON
+                            || outcome == ScoreCalculator.Outcome.LOST)
+                .count();
+    int activePlayers =
+        (int)
+            outcomes.stream()
+                .filter(outcome -> outcome == ScoreCalculator.Outcome.INCOMPLETE && !gameCompleted)
+                .count();
+    double totalScore =
+        entries.stream().mapToDouble(pg -> ScoreCalculator.score(pg, correctGroups)).sum();
     double averageScore = totalParticipants == 0 ? 0.0 : totalScore / totalParticipants;
 
     return new GameStatsData(
@@ -83,83 +77,58 @@ public record StatsServiceImpl(
         averageScore);
   }
 
+  record Performance(boolean won, int mistakes) {}
+
   @Override
   public PlayerStatsData getPlayerStats(String accountToken) throws InvalidTokenException {
     AccountPrincipal principal = accountService.resolve(accountToken);
     String username = principal.username();
+    List<Performance> performances =
+        playerGameRepository.findPlayerGameByUsername(username).stream()
+            .sorted(Comparator.comparingLong(PlayerGame::gameId))
+            .flatMap(pg -> toPerformance(pg).stream())
+            .toList();
 
-    List<PlayerGame> games = playerGameRepository.findPlayerGameByUsername(username);
-    // Sort by game id (chronological order)
-    games.sort(Comparator.comparingLong(PlayerGame::gameId));
+    int puzzlesCompleted = performances.size();
+    long wins = performances.stream().filter(Performance::won).count();
+    long losses = puzzlesCompleted - wins;
+    long perfectPuzzles = performances.stream().filter(p -> p.won() && p.mistakes() == 0).count();
+    Map<Integer, Long> mistakeCounts =
+        performances.stream()
+            .filter(Performance::won)
+            .collect(Collectors.groupingBy(Performance::mistakes, Collectors.counting()));
+    Map<Integer, Integer> mistakeHistogram =
+        IntStream.rangeClosed(0, 3)
+            .boxed()
+            .collect(Collectors.toMap(i -> i, i -> mistakeCounts.getOrDefault(i, 0L).intValue()));
+    double winRate = puzzlesCompleted == 0 ? 0.0 : (wins / (double) puzzlesCompleted) * 100.0;
+    double lossRate = puzzlesCompleted == 0 ? 0.0 : (losses / (double) puzzlesCompleted) * 100.0;
 
-    int puzzlesCompleted = 0;
-    int wins = 0;
-    int losses = 0;
-    int perfectPuzzles = 0;
-
-    Map<Integer, Integer> mistakeHistogram = new HashMap<>();
-    for (int i = 0; i <= 3; i++) {
-      mistakeHistogram.put(i, 0);
-    }
-
-    List<Boolean> completedOutcomes = new ArrayList<>();
-
-    for (PlayerGame pg : games) {
-      long gameId = pg.gameId();
-      if (!gameRepository.exists(gameId)) {
-        continue;
-      }
-      GameWordGroups gameWordGroups = gameRepository.loadById(gameId);
-      List<Set<String>> correctGroups =
-          gameWordGroups.groups().stream()
-              .map(group -> Set.copyOf(group.words()))
-              .collect(Collectors.toList());
-
-      ScoreCalculator.Outcome outcome = ScoreCalculator.outcome(pg, correctGroups);
-
-      if (outcome == ScoreCalculator.Outcome.INCOMPLETE) {
-        continue; // skip incomplete games for completed stats
-      }
-
-      puzzlesCompleted++;
-      ScoreCalculator.CorrectWrongCount counts =
-          ScoreCalculator.countCorrectWrong(pg, correctGroups);
-
-      if (outcome == ScoreCalculator.Outcome.WON) {
-        wins++;
-        if (counts.wrong() == 0) {
-          perfectPuzzles++;
+    record StreakAccumulator(int current, int max) {
+      StreakAccumulator next(boolean won) {
+        if (won) {
+          int newCurrent = current + 1;
+          return new StreakAccumulator(newCurrent, Math.max(max, newCurrent));
+        } else {
+          return new StreakAccumulator(0, max);
         }
-        mistakeHistogram.merge(counts.wrong(), 1, Integer::sum);
-        completedOutcomes.add(true);
-      } else { // LOST
-        losses++;
-        completedOutcomes.add(false);
       }
     }
 
-    double winRate = puzzlesCompleted == 0 ? 0.0 : ((double) wins / puzzlesCompleted) * 100.0;
-    double lossRate = puzzlesCompleted == 0 ? 0.0 : ((double) losses / puzzlesCompleted) * 100.0;
-
-    int currentStreak = 0;
-    int maxStreak = 0;
-    int tempStreak = 0;
-    for (boolean won : completedOutcomes) {
-      if (won) {
-        tempStreak++;
-        maxStreak = Math.max(maxStreak, tempStreak);
-      } else {
-        tempStreak = 0;
-      }
-    }
-    // current streak: iterate from most recent backwards
-    for (int i = completedOutcomes.size() - 1; i >= 0; i--) {
-      if (completedOutcomes.get(i)) {
-        currentStreak++;
-      } else {
-        break;
-      }
-    }
+    StreakAccumulator acc =
+        performances.stream()
+            .reduce(
+                new StreakAccumulator(0, 0),
+                (a, p) -> a.next(p.won()),
+                (a, b) ->
+                    new StreakAccumulator(
+                        Math.max(a.current(), b.current()), Math.max(a.max(), b.max())));
+    int maxStreak = acc.max();
+    int currentStreak =
+        (int)
+            IntStream.iterate(performances.size() - 1, i -> i >= 0, i -> i - 1)
+                .takeWhile(i -> performances.get(i).won())
+                .count();
 
     return new PlayerStatsData(
         puzzlesCompleted,
@@ -167,7 +136,23 @@ public record StatsServiceImpl(
         lossRate,
         currentStreak,
         maxStreak,
-        perfectPuzzles,
-        Map.copyOf(mistakeHistogram));
+        (int) perfectPuzzles,
+        mistakeHistogram);
+  }
+
+  private Optional<Performance> toPerformance(PlayerGame pg) {
+    long gameId = pg.gameId();
+    if (!gameRepository.exists(gameId)) {
+      return Optional.empty();
+    }
+    GameWordGroups gameWordGroups = gameRepository.loadById(gameId);
+    List<Set<String>> correctGroups = GameLogic.correctGroupsAsSets(gameWordGroups);
+    ScoreCalculator.Outcome outcome = ScoreCalculator.outcome(pg, correctGroups);
+    if (outcome == ScoreCalculator.Outcome.INCOMPLETE) {
+      return Optional.empty();
+    }
+    ScoreCalculator.CorrectWrongCount counts = ScoreCalculator.countCorrectWrong(pg, correctGroups);
+    boolean won = outcome == ScoreCalculator.Outcome.WON;
+    return Optional.of(new Performance(won, counts.wrong()));
   }
 }

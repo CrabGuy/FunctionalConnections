@@ -1,5 +1,14 @@
 package shared.dto;
 
-public interface ApiRequest {
+public sealed interface ApiRequest
+    permits RegisterRequest,
+        LoginRequest,
+        LogoutRequest,
+        UpdateCredentialsRequest,
+        SubmitProposalRequest,
+        RequestGameInfoRequest,
+        RequestGameStatsRequest,
+        RequestLeaderboardRequest,
+        RequestPlayerStatsRequest {
   String operation();
 }

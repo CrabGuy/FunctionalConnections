@@ -9,7 +9,6 @@ import server.dto.PlayerGame;
 import server.dto.PlayerGameKey;
 
 public final class InMemoryPlayerGameRepository implements PlayerGameRepository {
-
   private final ConcurrentHashMap<PlayerGameKey, PlayerGame> store = new ConcurrentHashMap<>();
 
   @Override
@@ -26,16 +25,12 @@ public final class InMemoryPlayerGameRepository implements PlayerGameRepository 
 
   @Override
   public List<PlayerGame> findByGame(long gameId) {
-    return store.values().stream()
-        .filter(pg -> pg.gameId() == gameId)
-        .collect(Collectors.toUnmodifiableList());
+    return store.values().stream().filter(pg -> pg.gameId() == gameId).toList();
   }
 
   @Override
   public List<PlayerGame> findPlayerGameByUsername(String username) {
-    return store.values().stream()
-        .filter(pg -> pg.username().equals(username))
-        .collect(Collectors.toUnmodifiableList());
+    return store.values().stream().filter(pg -> pg.username().equals(username)).toList();
   }
 
   @Override

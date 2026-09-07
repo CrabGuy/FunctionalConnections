@@ -13,10 +13,6 @@ import shared.dto.LoginData;
 import shared.dto.RegisterData;
 import shared.dto.UpdateCredentialsData;
 
-/**
- * Default implementation of {@link AccountService}. Uses constructor injection for all
- * dependencies.
- */
 public record AccountServiceImpl(
     AccountRepository accountRepository,
     PasswordHasher passwordHasher,
@@ -44,13 +40,10 @@ public record AccountServiceImpl(
     if (opt.isEmpty() || !passwordHasher.matches(password, opt.get().passwordHash())) {
       throw new IncorrectPasswordException(username);
     }
-
     long expiresAt = System.currentTimeMillis() + config.tokenExpiryMillis();
     String token = tokenSigner.sign(username, expiresAt);
-
     InetSocketAddress udpAddress = new InetSocketAddress(remoteAddress, udpPort);
     notificationRegistry.register(username, udpAddress);
-
     return new LoginData(token);
   }
 
@@ -68,30 +61,15 @@ public record AccountServiceImpl(
     if (opt.isEmpty() || !passwordHasher.matches(oldPassword, opt.get().passwordHash())) {
       throw new IncorrectPasswordException(oldUsername);
     }
-
     Account current = opt.get();
-    String updatedUsername = oldUsername;
-    String updatedHash = current.passwordHash();
-
-    if (newUsername != null && !newUsername.isEmpty() && !newUsername.equals(oldUsername)) {
-      if (accountRepository.existsByUsername(newUsername)) {
-        throw new NewUsernameAlreadyTakenException(newUsername);
-      }
-      updatedUsername = newUsername;
-    }
-
-    if (newPassword != null && !newPassword.isEmpty()) {
-      updatedHash = passwordHasher.hash(newPassword);
-    }
+    String updatedUsername = resolveUsername(oldUsername, newUsername);
+    String updatedHash = resolveHash(current.passwordHash(), newPassword);
 
     Account updatedAccount = new Account(updatedUsername, updatedHash);
     accountRepository.save(updatedAccount);
-
-    // If username changed, move the notification registration
     if (!updatedUsername.equals(oldUsername)) {
       accountRepository.deleteByUsername(oldUsername);
-
-      final String finalUpdatedUsername = updatedUsername; // effectively final copy for lambda
+      final String finalUpdatedUsername = updatedUsername;
       Optional<InetSocketAddress> udp = notificationRegistry.lookup(oldUsername);
       udp.ifPresent(
           addr -> {
@@ -99,12 +77,28 @@ public record AccountServiceImpl(
             notificationRegistry.register(finalUpdatedUsername, addr);
           });
     }
-
     return new UpdateCredentialsData(updatedUsername);
   }
 
   @Override
   public AccountPrincipal resolve(String accountToken) throws InvalidTokenException {
     return tokenSigner.verify(accountToken);
+  }
+
+  private String resolveUsername(String oldUsername, String newUsername) {
+    if (newUsername == null || newUsername.isEmpty() || newUsername.equals(oldUsername)) {
+      return oldUsername;
+    }
+    if (accountRepository.existsByUsername(newUsername)) {
+      throw new NewUsernameAlreadyTakenException(newUsername);
+    }
+    return newUsername;
+  }
+
+  private String resolveHash(String oldHash, String newPassword) {
+    if (newPassword == null || newPassword.isEmpty()) {
+      return oldHash;
+    }
+    return passwordHasher.hash(newPassword);
   }
 }

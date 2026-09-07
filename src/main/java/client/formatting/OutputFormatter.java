@@ -1,5 +1,7 @@
 package client.formatting;
 
+import java.util.ArrayList;
+import java.util.List;
 import shared.dto.GameInfoData;
 import shared.dto.GameStatsData;
 import shared.dto.LeaderboardData;
@@ -7,77 +9,72 @@ import shared.dto.LeaderboardEntry;
 import shared.dto.PlayerStatsData;
 
 public final class OutputFormatter {
+
   private OutputFormatter() {}
 
   public static String formatGameInfo(GameInfoData data, long nowMillis) {
-    StringBuilder sb = new StringBuilder();
-    sb.append("Game ").append(data.gameId()).append('\n');
-    sb.append("Status: ").append(GameInfoCalculator.status(data, nowMillis)).append('\n');
-    sb.append("Time remaining: ")
-        .append(formatDuration(GameInfoCalculator.remainingTimeMillis(data, nowMillis)))
-        .append('\n');
-    sb.append("Score: ").append(GameInfoCalculator.score(data)).append('\n');
-    sb.append("Correct proposals: ")
-        .append(GameInfoCalculator.correctProposalCount(data))
-        .append('\n');
-    sb.append("Mistakes: ").append(GameInfoCalculator.mistakeCount(data)).append('\n');
-    sb.append("Remaining words: ").append(GameInfoCalculator.remainingWords(data)).append('\n');
+    List<String> lines = new ArrayList<>();
+    lines.add("Game " + data.gameId());
+    lines.add("Status: " + GameInfoCalculator.status(data, nowMillis));
+    lines.add(
+        "Time remaining: "
+            + formatDuration(GameInfoCalculator.remainingTimeMillis(data, nowMillis)));
+    lines.add("Score: " + GameInfoCalculator.score(data));
+    lines.add("Correct proposals: " + GameInfoCalculator.correctProposalCount(data));
+    lines.add("Mistakes: " + GameInfoCalculator.mistakeCount(data));
+    lines.add("Remaining words: " + GameInfoCalculator.remainingWords(data));
     if (!data.correctGuesses().isEmpty()) {
-      sb.append("Correct guesses: ").append(data.correctGuesses()).append('\n');
+      lines.add("Correct guesses: " + data.correctGuesses());
     }
     if (!data.wrongGuesses().isEmpty()) {
-      sb.append("Wrong guesses: ").append(data.wrongGuesses()).append('\n');
+      lines.add("Wrong guesses: " + data.wrongGuesses());
     }
-    if (data.correctGroups() != null) {
-      sb.append("Correct groups: ").append(data.correctGroups()).append('\n');
-    }
-    return sb.toString().trim();
+    data.correctGroupsOptional().ifPresent(groups -> lines.add("Correct groups: " + groups));
+    return String.join("\n", lines).trim();
   }
 
   public static String formatGameStats(GameStatsData data, long nowMillis) {
-    StringBuilder sb = new StringBuilder();
-    sb.append("Game statistics for ").append(data.gameId()).append('\n');
-    sb.append("Completed: ").append(data.completed()).append('\n');
-    sb.append("Time remaining: ")
-        .append(formatDuration(Math.max(0L, data.expiresAt() - nowMillis)))
-        .append('\n');
-    sb.append("Total participants: ").append(data.totalParticipants()).append('\n');
-    sb.append("Active players: ").append(data.activePlayers()).append('\n');
-    sb.append("Completed players: ").append(data.completedPlayers()).append('\n');
-    sb.append("Winners: ").append(data.winners()).append('\n');
-    sb.append("Average score: ").append(data.averageScore()).append('\n');
-    return sb.toString().trim();
+    List<String> lines = new ArrayList<>();
+    lines.add("Game statistics for " + data.gameId());
+    lines.add("Completed: " + data.completed());
+    lines.add("Time remaining: " + formatDuration(Math.max(0L, data.expiresAt() - nowMillis)));
+    lines.add("Total participants: " + data.totalParticipants());
+    lines.add("Active players: " + data.activePlayers());
+    lines.add("Completed players: " + data.completedPlayers());
+    lines.add("Winners: " + data.winners());
+    lines.add("Average score: " + data.averageScore());
+    return String.join("\n", lines).trim();
   }
 
   public static String formatLeaderboard(LeaderboardData data) {
-    StringBuilder sb = new StringBuilder();
-    sb.append("Leaderboard (").append(data.totalPlayers()).append(" players)").append('\n');
+    List<String> lines = new ArrayList<>();
+    lines.add("Leaderboard (" + data.totalPlayers() + " players)");
     for (LeaderboardEntry entry : data.topPlayers()) {
-      sb.append(String.format("%d. %s — %d%n", entry.rank(), entry.username(), entry.score()));
+      lines.add(String.format("%d. %s — %d", entry.rank(), entry.username(), entry.score()));
     }
     if (data.requestedPlayer() != null) {
       LeaderboardEntry entry = data.requestedPlayer();
-      sb.append("Requested player: ")
-          .append(entry.username())
-          .append(" — rank ")
-          .append(entry.rank())
-          .append(", score ")
-          .append(entry.score())
-          .append('\n');
+      lines.add(
+          "Requested player: "
+              + entry.username()
+              + " — rank "
+              + entry.rank()
+              + ", score "
+              + entry.score());
     }
-    return sb.toString().trim();
+    return String.join("\n", lines).trim();
   }
 
   public static String formatPlayerStats(PlayerStatsData data) {
-    StringBuilder sb = new StringBuilder();
-    sb.append("Puzzles completed: ").append(data.puzzlesCompleted()).append('\n');
-    sb.append("Win rate: ").append(formatPercent(data.winRate())).append('\n');
-    sb.append("Loss rate: ").append(formatPercent(data.lossRate())).append('\n');
-    sb.append("Current streak: ").append(data.currentStreak()).append('\n');
-    sb.append("Max streak: ").append(data.maxStreak()).append('\n');
-    sb.append("Perfect puzzles: ").append(data.perfectPuzzles()).append('\n');
-    sb.append("Mistake histogram: ").append(data.mistakeHistogram()).append('\n');
-    return sb.toString().trim();
+    List<String> lines = new ArrayList<>();
+    lines.add("Puzzles completed: " + data.puzzlesCompleted());
+    lines.add("Win rate: " + formatPercent(data.winRate()));
+    lines.add("Loss rate: " + formatPercent(data.lossRate()));
+    lines.add("Current streak: " + data.currentStreak());
+    lines.add("Max streak: " + data.maxStreak());
+    lines.add("Perfect puzzles: " + data.perfectPuzzles());
+    lines.add("Mistake histogram: " + data.mistakeHistogram());
+    return String.join("\n", lines).trim();
   }
 
   public static String formatError(String message) {

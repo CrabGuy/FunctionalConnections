@@ -7,10 +7,10 @@ import client.formatting.AnsiColor;
 import client.formatting.GameInfoCalculator;
 import client.formatting.OutputFormatter;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.IntStream;
 import shared.dto.ApiResponse;
 import shared.dto.GameInfoData;
 import shared.dto.RequestGameInfoRequest;
@@ -24,23 +24,12 @@ public final class SubmitProposalCommand implements Command {
       throw new CommandException(
           "Usage: submit <word1> <word2> <word3> <word4> OR submit <num1> <num2> <num3> <num4>");
     }
-    if (context.session().accountToken() == null || context.session().accountToken().isBlank()) {
+    if (!context.session().isLoggedIn()) {
       throw new CommandException("You must be logged in for this command.");
     }
-
     List<String> words;
-    boolean allNumbers = true;
-    for (int i = 1; i <= 4; i++) {
-      try {
-        Integer.parseInt(args.get(i));
-      } catch (NumberFormatException e) {
-        allNumbers = false;
-        break;
-      }
-    }
-
+    boolean allNumbers = IntStream.rangeClosed(1, 4).allMatch(i -> isNumeric(args.get(i)));
     if (allNumbers) {
-      // Fetch current game info to resolve numbers to words
       @SuppressWarnings("unchecked")
       ApiResponse<GameInfoData> gameResponse =
           (ApiResponse<GameInfoData>)
@@ -52,28 +41,26 @@ public final class SubmitProposalCommand implements Command {
       }
       GameInfoData currentGame = gameResponse.data();
       List<String> remainingWords = GameInfoCalculator.remainingWords(currentGame);
-      words = new ArrayList<>();
-      for (int i = 1; i <= 4; i++) {
-        int index = Integer.parseInt(args.get(i)) - 1;
-        if (index < 0 || index >= remainingWords.size()) {
+      List<Integer> indices =
+          IntStream.rangeClosed(1, 4).mapToObj(i -> Integer.parseInt(args.get(i)) - 1).toList();
+      for (int idx : indices) {
+        if (idx < 0 || idx >= remainingWords.size()) {
           throw new CommandException(
               "Invalid word number: "
-                  + args.get(i)
+                  + (idx + 1)
                   + ". There are "
                   + remainingWords.size()
                   + " remaining words.");
         }
-        words.add(remainingWords.get(index));
       }
+      words = indices.stream().map(remainingWords::get).toList();
     } else {
       words = List.of(args.get(1), args.get(2), args.get(3), args.get(4));
     }
-
     Set<String> unique = new HashSet<>(words);
     if (unique.size() != 4) {
       throw new CommandException("A proposal must contain four distinct words.");
     }
-
     @SuppressWarnings("unchecked")
     ApiResponse<GameInfoData> response =
         (ApiResponse<GameInfoData>)
@@ -83,7 +70,6 @@ public final class SubmitProposalCommand implements Command {
     if (!response.success()) {
       throw new CommandException(OutputFormatter.formatError(response.error().message()));
     }
-
     GameInfoData data = response.data();
     GameInfoCalculator.ProposalOutcome outcome = GameInfoCalculator.evaluateProposal(data, words);
     String outcomeMessage =
@@ -93,5 +79,14 @@ public final class SubmitProposalCommand implements Command {
           case UNCHANGED -> AnsiColor.YELLOW.wrap("Proposal accepted; state unchanged.");
         };
     return outcomeMessage + "\n" + OutputFormatter.formatGameInfo(data, System.currentTimeMillis());
+  }
+
+  private static boolean isNumeric(String str) {
+    try {
+      Integer.parseInt(str);
+      return true;
+    } catch (NumberFormatException e) {
+      return false;
+    }
   }
 }

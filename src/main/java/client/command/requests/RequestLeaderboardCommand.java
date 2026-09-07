@@ -14,7 +14,7 @@ public final class RequestLeaderboardCommand implements Command {
   @Override
   public String execute(List<String> args, CommandContext context)
       throws CommandException, IOException {
-    if (context.session().accountToken() == null || context.session().accountToken().isBlank()) {
+    if (!context.session().isLoggedIn()) {
       throw new CommandException("You must be logged in for this command.");
     }
     if (args.size() == 1 || (args.size() == 2 && args.get(1).equalsIgnoreCase("all"))) {

@@ -14,4 +14,8 @@ public final class AccountSession {
   public void clear() {
     this.accountToken = null;
   }
+
+  public boolean isLoggedIn() {
+    return accountToken != null && !accountToken.isBlank();
+  }
 }

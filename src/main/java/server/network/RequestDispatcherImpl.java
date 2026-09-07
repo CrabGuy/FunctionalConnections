@@ -8,27 +8,29 @@ import server.game.ProposalService;
 import server.game.exceptions.GameException;
 import server.stats.LeaderboardService;
 import server.stats.StatsService;
-import shared.dto.*;
+import shared.dto.ApiError;
+import shared.dto.ApiRequest;
+import shared.dto.ApiResponse;
+import shared.dto.ErrorCode;
+import shared.dto.LoginData;
+import shared.dto.LoginRequest;
+import shared.dto.LogoutData;
+import shared.dto.LogoutRequest;
+import shared.dto.RegisterRequest;
+import shared.dto.RequestGameInfoRequest;
+import shared.dto.RequestGameStatsRequest;
+import shared.dto.RequestLeaderboardRequest;
+import shared.dto.RequestPlayerStatsRequest;
+import shared.dto.SubmitProposalRequest;
+import shared.dto.UpdateCredentialsRequest;
 
-public final class RequestDispatcherImpl implements RequestDispatcher {
-  private final AccountService accountService;
-  private final ProposalService proposalService;
-  private final StatsService statsService;
-  private final LeaderboardService leaderboardService;
-  private final GameClock gameClock;
-
-  public RequestDispatcherImpl(
-      AccountService accountService,
-      ProposalService proposalService,
-      StatsService statsService,
-      LeaderboardService leaderboardService,
-      GameClock gameClock) {
-    this.accountService = accountService;
-    this.proposalService = proposalService;
-    this.statsService = statsService;
-    this.leaderboardService = leaderboardService;
-    this.gameClock = gameClock;
-  }
+public record RequestDispatcherImpl(
+    AccountService accountService,
+    ProposalService proposalService,
+    StatsService statsService,
+    LeaderboardService leaderboardService,
+    GameClock gameClock)
+    implements RequestDispatcher {
 
   @Override
   public ApiResponse<?> dispatch(ApiRequest request, InetSocketAddress remoteAddress) {
@@ -71,7 +73,6 @@ public final class RequestDispatcherImpl implements RequestDispatcher {
                     req.accountToken(), req.playerName(), req.topPlayers()));
         case RequestPlayerStatsRequest req ->
             success(statsService.getPlayerStats(req.accountToken()));
-        default -> failure(new ApiError(ErrorCode.INTERNAL_ERROR, "Unsupported operation"));
       };
     } catch (AccountException e) {
       return failure(new ApiError(e.errorCode(), e.getMessage()));

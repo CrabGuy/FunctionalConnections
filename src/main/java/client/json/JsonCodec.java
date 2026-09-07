@@ -4,7 +4,15 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
-import shared.dto.*;
+import shared.dto.ApiResponse;
+import shared.dto.GameInfoData;
+import shared.dto.GameStatsData;
+import shared.dto.LeaderboardData;
+import shared.dto.LoginData;
+import shared.dto.LogoutData;
+import shared.dto.PlayerStatsData;
+import shared.dto.RegisterData;
+import shared.dto.UpdateCredentialsData;
 
 public final class JsonCodec {
   private static final Gson GSON = new Gson();
