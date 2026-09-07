@@ -3,11 +3,10 @@ package test.persistence;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Collectors;
 import server.account.AccountRepository;
 import server.dto.Account;
 import server.dto.PlayerGame;
+import server.dto.PlayerGameKey;
 import server.game.PlayerGameRepository;
 import server.persistence.FilePersistenceService;
 import server.persistence.PersistenceService;
@@ -19,121 +18,124 @@ import server.persistence.PersistenceService;
  */
 public class PersistenceTestFactory {
 
-  /**
-   * Creates a FilePersistenceService that uses the given directory as its storage root. The
-   * directory will be created if it does not exist.
-   */
-  public static PersistenceService createPersistenceService(Path storageDirectory) {
-    return new FilePersistenceService(storageDirectory);
-  }
-
-  /** Creates an in‑memory AccountRepository for testing. */
-  public static AccountRepository createAccountRepository() {
-    return new InMemoryAccountRepository();
-  }
-
-  /** Creates an in‑memory PlayerGameRepository for testing. */
-  public static PlayerGameRepository createPlayerGameRepository() {
-    return new InMemoryPlayerGameRepository();
-  }
-
-  // ---------------------------------------------------------------
-  // Test double implementations (thread‑safe but simple for tests)
-  // ---------------------------------------------------------------
-
-  private static final class InMemoryAccountRepository implements AccountRepository {
-    private final Map<String, Account> accounts = new ConcurrentHashMap<>();
-
-    @Override
-    public Optional<Account> findAccountByUsername(String username) {
-      return Optional.ofNullable(accounts.get(username));
+    public static PersistenceService createPersistenceService(Path storageDirectory) {
+        return new FilePersistenceService(storageDirectory);
     }
 
-    @Override
-    public void save(Account account) {
-      accounts.put(account.username(), account);
+    public static AccountRepository createAccountRepository() {
+        return new InMemoryAccountRepository();
     }
 
-    @Override
-    public boolean existsByUsername(String username) {
-      return accounts.containsKey(username);
+    public static PlayerGameRepository createPlayerGameRepository() {
+        return new InMemoryPlayerGameRepository();
     }
 
-    @Override
-    public void deleteByUsername(String username) {
-      accounts.remove(username);
+    // ---------------------------------------------------------------
+    // Test double implementations (thread‑safe but simple for tests)
+    // ---------------------------------------------------------------
+
+    private static final class InMemoryAccountRepository implements AccountRepository {
+        private final Map<String, Account> accounts = new ConcurrentHashMap<>();
+
+        @Override
+        public Optional<Account> findAccountByUsername(String username) {
+            return Optional.ofNullable(accounts.get(username));
+        }
+
+        @Override
+        public void save(Account account) {
+            accounts.put(account.username(), account);
+        }
+
+        @Override
+        public boolean existsByUsername(String username) {
+            return accounts.containsKey(username);
+        }
+
+        @Override
+        public void deleteByUsername(String username) {
+            accounts.remove(username);
+        }
+
+        @Override
+        public List<Account> findAll() {
+            return List.copyOf(accounts.values());
+        }
     }
 
-    @Override
-    public List<Account> findAll() {
-      return List.copyOf(accounts.values());
+    private static final class InMemoryPlayerGameRepository implements PlayerGameRepository {
+        private final ConcurrentHashMap<PlayerGameKey, PlayerGame> store = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<String, Object> userLocks = new ConcurrentHashMap<>();
+
+        private Object lockFor(String username) {
+            return userLocks.computeIfAbsent(username, k -> new Object());
+        }
+
+        @Override
+        public PlayerGame findOrCreate(String username, long gameId) {
+            Object lock = lockFor(username);
+            synchronized (lock) {
+                PlayerGameKey key = new PlayerGameKey(username, gameId);
+                return store.computeIfAbsent(key, k -> new PlayerGame(username, gameId, List.of()));
+            }
+        }
+
+        @Override
+        public void save(PlayerGame playerGame) {
+            Object lock = lockFor(playerGame.username());
+            synchronized (lock) {
+                PlayerGameKey key = new PlayerGameKey(playerGame.username(), playerGame.gameId());
+                store.put(key, playerGame);
+            }
+        }
+
+        @Override
+        public List<PlayerGame> findByGame(long gameId) {
+            return store.values().stream().filter(pg -> pg.gameId() == gameId).toList();
+        }
+
+        @Override
+        public List<PlayerGame> findPlayerGameByUsername(String username) {
+            return store.values().stream().filter(pg -> pg.username().equals(username)).toList();
+        }
+
+        @Override
+        public Optional<PlayerGame> findByUsernameAndGame(String username, long gameId) {
+            PlayerGameKey key = new PlayerGameKey(username, gameId);
+            return Optional.ofNullable(store.get(key));
+        }
+
+        @Override
+        public Set<String> findAllUsernames() {
+            return store.values().stream()
+                    .map(PlayerGame::username)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+
+        @Override
+        public List<PlayerGame> findAll() {
+            return List.copyOf(store.values());
+        }
+
+        @Override
+        public void updateUsername(String oldUsername, String newUsername) {
+            String first = oldUsername.compareTo(newUsername) <= 0 ? oldUsername : newUsername;
+            String second = first.equals(oldUsername) ? newUsername : oldUsername;
+            Object firstLock = lockFor(first);
+            Object secondLock = lockFor(second);
+            synchronized (firstLock) {
+            synchronized (secondLock) {
+                    List<PlayerGameKey> keysToMove = store.keySet().stream()
+                            .filter(key -> key.username().equals(oldUsername))
+                            .toList();
+                    for (PlayerGameKey oldKey : keysToMove) {
+                        PlayerGame value = store.remove(oldKey);
+                        if (value != null) {
+                            store.put(new PlayerGameKey(newUsername, value.gameId()), value);
+                        }
+                    }
+                }
+            }
+        }
     }
-  }
-
-  private static final class InMemoryPlayerGameRepository implements PlayerGameRepository {
-    private final Map<String, List<PlayerGame>> gamesByUser = new ConcurrentHashMap<>();
-    private final Map<Long, List<PlayerGame>> gamesByGameId = new ConcurrentHashMap<>();
-
-    @Override
-    public PlayerGame findOrCreate(String username, long gameId) {
-      Optional<PlayerGame> existing = findByUsernameAndGame(username, gameId);
-      if (existing.isPresent()) {
-        return existing.get();
-      }
-      PlayerGame newGame = new PlayerGame(username, gameId, new ArrayList<>());
-      save(newGame);
-      return newGame;
-    }
-
-    @Override
-    public void save(PlayerGame playerGame) {
-      // Remove any previous entry for the same (username, gameId)
-      findByUsernameAndGame(playerGame.username(), playerGame.gameId())
-          .ifPresent(
-              old -> {
-                gamesByUser
-                    .getOrDefault(playerGame.username(), new CopyOnWriteArrayList<>())
-                    .remove(old);
-                gamesByGameId
-                    .getOrDefault(playerGame.gameId(), new CopyOnWriteArrayList<>())
-                    .remove(old);
-              });
-
-      gamesByUser
-          .computeIfAbsent(playerGame.username(), k -> new CopyOnWriteArrayList<>())
-          .add(playerGame);
-      gamesByGameId
-          .computeIfAbsent(playerGame.gameId(), k -> new CopyOnWriteArrayList<>())
-          .add(playerGame);
-    }
-
-    @Override
-    public List<PlayerGame> findByGame(long gameId) {
-      return List.copyOf(gamesByGameId.getOrDefault(gameId, new CopyOnWriteArrayList<>()));
-    }
-
-    @Override
-    public List<PlayerGame> findPlayerGameByUsername(String username) {
-      return List.copyOf(gamesByUser.getOrDefault(username, new CopyOnWriteArrayList<>()));
-    }
-
-    @Override
-    public Set<String> findAllUsernames() {
-      return Set.copyOf(gamesByUser.keySet());
-    }
-
-    @Override
-    public Optional<PlayerGame> findByUsernameAndGame(String username, long gameId) {
-      return gamesByUser.getOrDefault(username, new CopyOnWriteArrayList<>()).stream()
-          .filter(pg -> pg.gameId() == gameId)
-          .findFirst();
-    }
-
-    @Override
-    public List<PlayerGame> findAll() {
-      return gamesByUser.values().stream()
-          .flatMap(List::stream)
-          .collect(Collectors.toUnmodifiableList());
-    }
-  }
 }
