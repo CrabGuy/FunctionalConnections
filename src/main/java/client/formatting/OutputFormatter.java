@@ -9,7 +9,6 @@ import shared.dto.LeaderboardEntry;
 import shared.dto.PlayerStatsData;
 
 public final class OutputFormatter {
-
   private OutputFormatter() {}
 
   public static String formatGameInfo(GameInfoData data, long nowMillis) {

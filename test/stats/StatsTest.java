@@ -10,6 +10,7 @@ import server.game.PlayerGameRepository;
 import server.game.exceptions.GameNotFoundException;
 import server.stats.LeaderboardService;
 import server.stats.StatsService;
+import server.stats.exceptions.PlayerNotFoundException;
 import shared.dto.*;
 
 public class StatsTest {
@@ -243,23 +244,27 @@ public class StatsTest {
         StatsTestFactory.createStatsService(accountService, playerRepo, gameRepo, clock);
     PlayerStatsData ps = statsService.getPlayerStats("token-alice");
 
-    check(ps.puzzlesCompleted() == 3, "puzzlesCompleted should be 3");
-    double expectedWinRate = (2.0 / 3.0) * 100;
-    double expectedLossRate = (1.0 / 3.0) * 100;
-    check(Math.abs(ps.winRate() - expectedWinRate) < 0.001, "winRate should be ~66.67");
-    check(Math.abs(ps.lossRate() - expectedLossRate) < 0.001, "lossRate should be ~33.33");
+    // puzzlesCompleted now includes incomplete games
+    check(ps.puzzlesCompleted() == 5, "puzzlesCompleted should be 5 (including incomplete)");
+    double expectedWinRate = 2.0 / 5.0; // fraction, not percentage
+    double expectedLossRate = 1.0 / 5.0;
+    check(Math.abs(ps.winRate() - expectedWinRate) < 0.001, "winRate should be ~0.4");
+    check(Math.abs(ps.lossRate() - expectedLossRate) < 0.001, "lossRate should be ~0.2");
     check(ps.currentStreak() == 0, "currentStreak should be 0");
     check(ps.maxStreak() == 2, "maxStreak should be 2");
     check(ps.perfectPuzzles() == 1, "perfectPuzzles should be 1");
 
-    Map<Integer, Integer> expectedHist = new HashMap<>();
-    expectedHist.put(0, 1);
-    expectedHist.put(1, 0);
-    expectedHist.put(2, 1);
-    expectedHist.put(3, 0);
+    MistakeHistogram hist = ps.mistakeHistogram();
+    Map<Integer, Integer> expectedWonByMistakes = new HashMap<>();
+    expectedWonByMistakes.put(0, 1); // game0 win with 0 mistakes
+    expectedWonByMistakes.put(1, 0);
+    expectedWonByMistakes.put(2, 1); // game1 win with 2 mistakes
+    expectedWonByMistakes.put(3, 0);
     check(
-        ps.mistakeHistogram().equals(expectedHist),
-        "mistakeHistogram should be {0:1, 1:0, 2:1, 3:0}");
+        hist.wonByMistakes().equals(expectedWonByMistakes),
+        "wonByMistakes should be {0:1, 1:0, 2:1, 3:0}");
+    check(hist.lost() == 1, "lost should be 1");
+    check(hist.notFinished() == 2, "notFinished should be 2");
   }
 
   private static void testLeaderboard() {
@@ -387,9 +392,13 @@ public class StatsTest {
     check(ps.currentStreak() == 0, "currentStreak should be 0");
     check(ps.maxStreak() == 0, "maxStreak should be 0");
     check(ps.perfectPuzzles() == 0, "perfectPuzzles should be 0");
+
+    MistakeHistogram hist = ps.mistakeHistogram();
     check(
-        ps.mistakeHistogram().isEmpty() || allZeroHistogram(ps.mistakeHistogram()),
-        "histogram should be empty or all zeros for empty history");
+        hist.wonByMistakes().isEmpty() || allZeroHistogram(hist.wonByMistakes()),
+        "wonByMistakes should be empty or all zeros for empty history");
+    check(hist.lost() == 0, "lost should be 0");
+    check(hist.notFinished() == 0, "notFinished should be 0");
   }
 
   private static void testPlayerStatsAllIncomplete() {
@@ -403,7 +412,6 @@ public class StatsTest {
     AccountService accountService =
         StatsTestFactory.createAccountService(Map.of("token-alice", "alice"));
 
-    // All incomplete: never reached 3 correct nor 4 wrong
     playerRepo.save(new PlayerGame("alice", 0L, List.of(CORRECT_A, WRONG_1)));
     playerRepo.save(new PlayerGame("alice", 1L, List.of()));
     playerRepo.save(new PlayerGame("alice", 2L, List.of(CORRECT_A, CORRECT_B, WRONG_1)));
@@ -412,12 +420,17 @@ public class StatsTest {
         StatsTestFactory.createStatsService(accountService, playerRepo, gameRepo, clock);
     PlayerStatsData ps = statsService.getPlayerStats("token-alice");
 
-    check(ps.puzzlesCompleted() == 0, "puzzlesCompleted should be 0 when all games are incomplete");
+    check(ps.puzzlesCompleted() == 3, "puzzlesCompleted should be 3 (all incomplete)");
     check(ps.winRate() == 0.0, "winRate should be 0.0");
     check(ps.lossRate() == 0.0, "lossRate should be 0.0");
     check(ps.currentStreak() == 0, "currentStreak should be 0");
     check(ps.maxStreak() == 0, "maxStreak should be 0");
     check(ps.perfectPuzzles() == 0, "perfectPuzzles should be 0");
+
+    MistakeHistogram hist = ps.mistakeHistogram();
+    check(hist.wonByMistakes().isEmpty(), "wonByMistakes should be empty");
+    check(hist.lost() == 0, "lost should be 0");
+    check(hist.notFinished() == 3, "notFinished should be 3");
   }
 
   private static void testPlayerStatsCurrentStreakOngoingWin() {
@@ -493,17 +506,19 @@ public class StatsTest {
         StatsTestFactory.createStatsService(accountService, playerRepo, gameRepo, clock);
     PlayerStatsData ps = statsService.getPlayerStats("token-alice");
 
-    check(ps.puzzlesCompleted() == 2, "Only completed games count toward puzzlesCompleted");
+    check(ps.puzzlesCompleted() == 3, "puzzlesCompleted should include incomplete games (3 total)");
 
-    // Histogram should only reflect the two completed games, excluding the incomplete one.
-    Map<Integer, Integer> expectedHist = new HashMap<>();
-    expectedHist.put(0, 1); // game 0
-    expectedHist.put(1, 0);
-    expectedHist.put(2, 1); // game 2
-    expectedHist.put(3, 0);
+    MistakeHistogram hist = ps.mistakeHistogram();
+    Map<Integer, Integer> expectedWonByMistakes = new HashMap<>();
+    expectedWonByMistakes.put(0, 1); // game0
+    expectedWonByMistakes.put(1, 0);
+    expectedWonByMistakes.put(2, 1); // game2
+    expectedWonByMistakes.put(3, 0);
     check(
-        ps.mistakeHistogram().equals(expectedHist),
-        "mistakeHistogram should exclude incomplete games");
+        hist.wonByMistakes().equals(expectedWonByMistakes),
+        "wonByMistakes should include only wins: {0:1, 1:0, 2:1, 3:0}");
+    check(hist.lost() == 0, "lost should be 0");
+    check(hist.notFinished() == 1, "notFinished should be 1 (one incomplete game)");
   }
 
   private static void testGameStatsZeroParticipants() {
@@ -703,9 +718,11 @@ public class StatsTest {
 
     LeaderboardService leaderboardService =
         StatsTestFactory.createLeaderboardService(accountService, playerRepo, gameRepo);
-    LeaderboardData data = leaderboardService.getLeaderboard("token-alice", "zebra", null);
 
-    check(data.requestedPlayer() == null, "Non-existent player lookup should return null");
+    assertThrows(
+        PlayerNotFoundException.class,
+        () -> leaderboardService.getLeaderboard("token-alice", "zebra", null),
+        "Non-existent player should throw PlayerNotFoundException");
   }
 
   // ---------------------- Helper methods ----------------------

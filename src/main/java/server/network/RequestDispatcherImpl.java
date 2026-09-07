@@ -8,6 +8,7 @@ import server.game.ProposalService;
 import server.game.exceptions.GameException;
 import server.stats.LeaderboardService;
 import server.stats.StatsService;
+import server.stats.exceptions.PlayerNotFoundException;
 import shared.dto.ApiError;
 import shared.dto.ApiRequest;
 import shared.dto.ApiResponse;
@@ -77,6 +78,8 @@ public record RequestDispatcherImpl(
     } catch (AccountException e) {
       return failure(new ApiError(e.errorCode(), e.getMessage()));
     } catch (GameException e) {
+      return failure(new ApiError(e.errorCode(), e.getMessage()));
+    } catch (PlayerNotFoundException e) {
       return failure(new ApiError(e.errorCode(), e.getMessage()));
     } catch (Exception e) {
       return failure(

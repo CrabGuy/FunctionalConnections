@@ -13,6 +13,7 @@ import server.dto.PlayerGame;
 import server.game.GameLogic;
 import server.game.GameRepository;
 import server.game.PlayerGameRepository;
+import server.stats.exceptions.PlayerNotFoundException;
 import shared.dto.LeaderboardData;
 import shared.dto.LeaderboardEntry;
 
@@ -24,13 +25,12 @@ public record LeaderboardServiceImpl(
 
   @Override
   public LeaderboardData getLeaderboard(String accountToken, String playerName, Integer topK)
-      throws InvalidTokenException {
+      throws InvalidTokenException, PlayerNotFoundException {
     accountService.resolve(accountToken);
     Set<String> allUsernames = playerGameRepository.findAllUsernames();
     Map<String, Integer> scoresByUsername =
         allUsernames.stream()
             .collect(Collectors.toMap(username -> username, this::computeTotalScore));
-
     List<Map.Entry<String, Integer>> sortedEntries =
         scoresByUsername.entrySet().stream()
             .sorted(
@@ -38,7 +38,6 @@ public record LeaderboardServiceImpl(
                     .reversed()
                     .thenComparing(Map.Entry.comparingByKey()))
             .toList();
-
     List<LeaderboardEntry> rankedEntries =
         IntStream.range(0, sortedEntries.size())
             .mapToObj(
@@ -47,13 +46,17 @@ public record LeaderboardServiceImpl(
                         sortedEntries.get(i).getKey(), sortedEntries.get(i).getValue(), i + 1))
             .toList();
 
-    Optional<LeaderboardEntry> requested =
-        Optional.ofNullable(playerName)
-            .flatMap(
-                name ->
-                    rankedEntries.stream()
-                        .filter(entry -> entry.username().equals(name))
-                        .findFirst());
+    LeaderboardEntry requestedEntry = null;
+    if (playerName != null) {
+      Optional<LeaderboardEntry> requested =
+          rankedEntries.stream()
+              .filter(entry -> entry.username().equals(playerName))
+              .findFirst();
+      if (requested.isEmpty()) {
+        throw new PlayerNotFoundException(playerName);
+      }
+      requestedEntry = requested.get();
+    }
 
     List<LeaderboardEntry> top;
     if (topK == null || topK >= rankedEntries.size()) {
@@ -63,7 +66,7 @@ public record LeaderboardServiceImpl(
     } else {
       top = List.copyOf(rankedEntries.subList(0, topK));
     }
-    return new LeaderboardData(top, requested.orElse(null), rankedEntries.size());
+    return new LeaderboardData(top, requestedEntry, rankedEntries.size());
   }
 
   private int computeTotalScore(String username) {

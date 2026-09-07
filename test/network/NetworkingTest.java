@@ -634,7 +634,9 @@ public class NetworkingTest {
         new NetworkingTestFactory.StubStatsService() {
           @Override
           public PlayerStatsData getPlayerStats(String accountToken) {
-            return new PlayerStatsData(10, 0.6, 0.4, 2, 5, 3, Map.of(0, 1, 2, 3));
+            return new PlayerStatsData(
+                10, 0.6, 0.4, 2, 5, 3,
+                new MistakeHistogram(Map.of(0, 1, 2, 3), 0, 0));
           }
         };
     RequestDispatcher dispatcher =
