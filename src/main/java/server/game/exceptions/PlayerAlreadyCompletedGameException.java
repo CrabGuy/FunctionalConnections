@@ -2,7 +2,15 @@ package server.game.exceptions;
 
 import shared.dto.ErrorCode;
 
+/** Thrown when a player tries to submit a proposal after already winning or losing the game. */
 public final class PlayerAlreadyCompletedGameException extends GameException {
+
+  /**
+   * Constructs the exception.
+   *
+   * @param username the username
+   * @param gameId the game ID
+   */
   public PlayerAlreadyCompletedGameException(String username, long gameId) {
     super(
         ErrorCode.PLAYER_ALREADY_COMPLETED_GAME,

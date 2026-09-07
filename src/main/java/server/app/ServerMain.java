@@ -75,12 +75,12 @@ public class ServerMain {
     // inside ServerMain.main()
     AccountService accountService =
         new AccountServiceImpl(
-                accountRepo,
-                playerGameRepo,   // <-- new parameter
-                hasher,
-                tokenSigner,
-                notificationRegistry,
-                config);
+            accountRepo,
+            playerGameRepo, // <-- new parameter
+            hasher,
+            tokenSigner,
+            notificationRegistry,
+            config);
     GameClock gameClock = new GameClockImpl(gameDurationMillis);
     ProposalService proposalService =
         new ProposalServiceImpl(accountService, gameRepo, gameClock, playerGameRepo);

@@ -35,7 +35,9 @@ public class StatsTest {
     // New edge-case tests
     runTest("testPlayerStatsEmptyHistory", StatsTest::testPlayerStatsEmptyHistory);
     runTest("testPlayerStatsAllIncomplete", StatsTest::testPlayerStatsAllIncomplete);
-    runTest("testPlayerStatsExcludesCurrentActiveGame", StatsTest::testPlayerStatsExcludesCurrentActiveGame);
+    runTest(
+        "testPlayerStatsExcludesCurrentActiveGame",
+        StatsTest::testPlayerStatsExcludesCurrentActiveGame);
     runTest(
         "testPlayerStatsCurrentStreakOngoingWin",
         StatsTest::testPlayerStatsCurrentStreakOngoingWin);
@@ -400,7 +402,7 @@ public class StatsTest {
     check(hist.notFinished() == 0, "notFinished should be 0");
   }
 
-    private static void testPlayerStatsAllIncomplete() {
+  private static void testPlayerStatsAllIncomplete() {
     GameClock clock = StatsTestFactory.createGameClock(ACTIVE_DURATION);
     Map<Long, GameWordGroups> games = new HashMap<>();
     for (long gid = 0; gid < 3; gid++) {
@@ -421,7 +423,8 @@ public class StatsTest {
     PlayerStatsData ps = statsService.getPlayerStats("token-alice");
 
     // Game 0 (current active) should be excluded, so only games 1 and 2 count.
-    check(ps.puzzlesCompleted() == 2, "puzzlesCompleted should be 2 (current active game excluded)");
+    check(
+        ps.puzzlesCompleted() == 2, "puzzlesCompleted should be 2 (current active game excluded)");
     check(ps.winRate() == 0.0, "winRate should be 0.0");
     check(ps.lossRate() == 0.0, "lossRate should be 0.0");
     check(ps.currentStreak() == 0, "currentStreak should be 0");
@@ -438,27 +441,28 @@ public class StatsTest {
 
   private static void testPlayerStatsExcludesCurrentActiveGame() {
     // Custom clock: current game id = 0, game 1 is expired (completed)
-    GameClock customClock = new GameClock() {
-      @Override
-      public long currentGameId(long nowMillis) {
-        return 0L;
-      }
+    GameClock customClock =
+        new GameClock() {
+          @Override
+          public long currentGameId(long nowMillis) {
+            return 0L;
+          }
 
-      @Override
-      public long startedAt(long gameId) {
-        return 0;
-      }
+          @Override
+          public long startedAt(long gameId) {
+            return 0;
+          }
 
-      @Override
-      public long expiresAt(long gameId) {
-        return gameId == 1 ? 0 : Long.MAX_VALUE;
-      }
+          @Override
+          public long expiresAt(long gameId) {
+            return gameId == 1 ? 0 : Long.MAX_VALUE;
+          }
 
-      @Override
-      public boolean isCompleted(long gameId, long nowMillis) {
-        return gameId == 1; // game 1 completed, game 0 active
-      }
-    };
+          @Override
+          public boolean isCompleted(long gameId, long nowMillis) {
+            return gameId == 1; // game 1 completed, game 0 active
+          }
+        };
 
     Map<Long, GameWordGroups> games = new HashMap<>();
     games.put(0L, createGame(0L));
@@ -477,7 +481,8 @@ public class StatsTest {
     PlayerStatsData ps = statsService.getPlayerStats("token-alice");
 
     // Only game 1 (expired, incomplete) should be included; game 0 (current active) is excluded.
-    check(ps.puzzlesCompleted() == 1, "puzzlesCompleted should be 1 (only expired incomplete game)");
+    check(
+        ps.puzzlesCompleted() == 1, "puzzlesCompleted should be 1 (only expired incomplete game)");
     check(ps.winRate() == 0.0, "winRate should be 0.0");
     check(ps.lossRate() == 0.0, "lossRate should be 0.0");
     check(ps.currentStreak() == 0, "currentStreak should be 0");
@@ -565,7 +570,8 @@ public class StatsTest {
         StatsTestFactory.createStatsService(accountService, playerRepo, gameRepo, clock);
     PlayerStatsData ps = statsService.getPlayerStats("token-alice");
 
-    // Current game id = 0 (win), so not filtered. Game 1 is incomplete and not current? Actually game 1 is also incomplete and not current, so it is included.
+    // Current game id = 0 (win), so not filtered. Game 1 is incomplete and not current? Actually
+    // game 1 is also incomplete and not current, so it is included.
     check(ps.puzzlesCompleted() == 3, "puzzlesCompleted should include incomplete games (3 total)");
 
     MistakeHistogram hist = ps.mistakeHistogram();

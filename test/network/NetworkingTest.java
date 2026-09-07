@@ -147,12 +147,11 @@ public class NetworkingTest {
             return new LoginData("token-abc");
           }
         };
-        
+
     ProposalService proposalService =
         new NetworkingTestFactory.StubProposalService() {
           @Override
-          public void touchCurrentGame(String accountToken) {
-          }
+          public void touchCurrentGame(String accountToken) {}
         };
 
     RequestDispatcher dispatcher =
@@ -643,8 +642,7 @@ public class NetworkingTest {
           @Override
           public PlayerStatsData getPlayerStats(String accountToken) {
             return new PlayerStatsData(
-                10, 0.6, 0.4, 2, 5, 3,
-                new MistakeHistogram(Map.of(0, 1, 2, 3), 0, 0));
+                10, 0.6, 0.4, 2, 5, 3, new MistakeHistogram(Map.of(0, 1, 2, 3), 0, 0));
           }
         };
     RequestDispatcher dispatcher =

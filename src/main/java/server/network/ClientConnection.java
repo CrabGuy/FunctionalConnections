@@ -12,21 +12,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.ExecutorService;
-import shared.dto.ApiError;
-import shared.dto.ApiRequest;
-import shared.dto.ApiResponse;
-import shared.dto.ErrorCode;
-import shared.dto.LoginRequest;
-import shared.dto.LogoutRequest;
-import shared.dto.RegisterRequest;
-import shared.dto.RequestGameInfoRequest;
-import shared.dto.RequestGameStatsRequest;
-import shared.dto.RequestLeaderboardRequest;
-import shared.dto.RequestPlayerStatsRequest;
-import shared.dto.SubmitProposalRequest;
-import shared.dto.UpdateCredentialsRequest;
+import shared.dto.*;
 
+/**
+ * Handles a single client TCP connection, parsing requests, dispatching them, and managing
+ * asynchronous writes via a selector.
+ */
 public class ClientConnection {
+
   private final SocketChannel channel;
   private final RequestDispatcher dispatcher;
   private final Gson gson;
@@ -35,6 +28,14 @@ public class ClientConnection {
   private final Queue<ByteBuffer> writeQueue = new ArrayDeque<>();
   private boolean writePending = false;
 
+  /**
+   * Constructs a new client connection.
+   *
+   * @param channel the socket channel
+   * @param dispatcher the request dispatcher
+   * @param gson the Gson instance for JSON
+   * @param selector the selector for non-blocking I/O
+   */
   public ClientConnection(
       SocketChannel channel, RequestDispatcher dispatcher, Gson gson, Selector selector) {
     this.channel = channel;
@@ -43,6 +44,12 @@ public class ClientConnection {
     this.selector = selector;
   }
 
+  /**
+   * Handles a read event: reads data from the channel, extracts newline-delimited JSON requests,
+   * and submits them for processing.
+   *
+   * @param workerPool the executor service for processing requests
+   */
   public void handleRead(ExecutorService workerPool) {
     try {
       int bytesRead = channel.read(readBuffer);
@@ -56,7 +63,7 @@ public class ClientConnection {
         if (newlinePos == -1) break;
         byte[] requestBytes = new byte[newlinePos - readBuffer.position()];
         readBuffer.get(requestBytes);
-        readBuffer.get();
+        readBuffer.get(); // consume newline
         String requestJson = new String(requestBytes, StandardCharsets.UTF_8);
         workerPool.submit(() -> processRequest(requestJson));
       }
@@ -66,6 +73,7 @@ public class ClientConnection {
     }
   }
 
+  /** Handles a write event: writes queued byte buffers to the channel. */
   public synchronized void handleWrite() {
     try {
       while (!writeQueue.isEmpty()) {
@@ -86,6 +94,11 @@ public class ClientConnection {
     }
   }
 
+  /**
+   * Processes a single request JSON string: parses, dispatches, and enqueues the response.
+   *
+   * @param requestJson the JSON request
+   */
   private void processRequest(String requestJson) {
     try {
       ApiRequest request = parseRequest(requestJson);
@@ -107,6 +120,13 @@ public class ClientConnection {
     }
   }
 
+  /**
+   * Parses a JSON request into a typed {@link ApiRequest} based on the "operation" field.
+   *
+   * @param json the JSON string
+   * @return the parsed request
+   * @throws IllegalArgumentException if the operation is unknown
+   */
   private ApiRequest parseRequest(String json) {
     JsonObject obj = gson.fromJson(json, JsonObject.class);
     String operation = obj.get("operation").getAsString();
@@ -124,6 +144,11 @@ public class ClientConnection {
     };
   }
 
+  /**
+   * Enqueues a byte buffer for writing and updates the selector interest ops.
+   *
+   * @param buffer the buffer to enqueue
+   */
   private synchronized void enqueueWrite(ByteBuffer buffer) {
     writeQueue.add(buffer);
     if (!writePending) {
@@ -136,6 +161,7 @@ public class ClientConnection {
     }
   }
 
+  /** Closes the socket channel. */
   public void close() {
     try {
       channel.close();
@@ -143,6 +169,12 @@ public class ClientConnection {
     }
   }
 
+  /**
+   * Finds the position of the next newline byte in the buffer.
+   *
+   * @param buffer the byte buffer
+   * @return the index of the newline, or -1 if not found
+   */
   private int findNewline(ByteBuffer buffer) {
     int pos = buffer.position();
     while (pos < buffer.limit()) {

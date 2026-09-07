@@ -1,5 +1,6 @@
 package shared.dto;
 
+/** Enumeration of possible error codes in API responses. */
 public enum ErrorCode {
   USERNAME_ALREADY_REGISTERED,
   INCORRECT_PASSWORD,

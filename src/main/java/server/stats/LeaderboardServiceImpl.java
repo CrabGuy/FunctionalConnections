@@ -17,20 +17,27 @@ import server.stats.exceptions.PlayerNotFoundException;
 import shared.dto.LeaderboardData;
 import shared.dto.LeaderboardEntry;
 
+/**
+ * Implementation of {@link LeaderboardService} that computes total scores for all players across
+ * all their games.
+ */
 public record LeaderboardServiceImpl(
     AccountService accountService,
     PlayerGameRepository playerGameRepository,
     GameRepository gameRepository)
     implements LeaderboardService {
 
+  /** {@inheritDoc} */
   @Override
   public LeaderboardData getLeaderboard(String accountToken, String playerName, Integer topK)
       throws InvalidTokenException, PlayerNotFoundException {
     accountService.resolve(accountToken);
+
     Set<String> allUsernames = playerGameRepository.findAllUsernames();
     Map<String, Integer> scoresByUsername =
         allUsernames.stream()
             .collect(Collectors.toMap(username -> username, this::computeTotalScore));
+
     List<Map.Entry<String, Integer>> sortedEntries =
         scoresByUsername.entrySet().stream()
             .sorted(
@@ -38,6 +45,7 @@ public record LeaderboardServiceImpl(
                     .reversed()
                     .thenComparing(Map.Entry.comparingByKey()))
             .toList();
+
     List<LeaderboardEntry> rankedEntries =
         IntStream.range(0, sortedEntries.size())
             .mapToObj(
@@ -49,9 +57,7 @@ public record LeaderboardServiceImpl(
     LeaderboardEntry requestedEntry = null;
     if (playerName != null) {
       Optional<LeaderboardEntry> requested =
-          rankedEntries.stream()
-              .filter(entry -> entry.username().equals(playerName))
-              .findFirst();
+          rankedEntries.stream().filter(entry -> entry.username().equals(playerName)).findFirst();
       if (requested.isEmpty()) {
         throw new PlayerNotFoundException(playerName);
       }
@@ -66,9 +72,16 @@ public record LeaderboardServiceImpl(
     } else {
       top = List.copyOf(rankedEntries.subList(0, topK));
     }
+
     return new LeaderboardData(top, requestedEntry, rankedEntries.size());
   }
 
+  /**
+   * Computes the total score for a given username by summing scores across all games.
+   *
+   * @param username the username
+   * @return the total score
+   */
   private int computeTotalScore(String username) {
     return playerGameRepository.findPlayerGameByUsername(username).stream()
         .flatMap(pg -> tryLoadGameAndScore(pg).stream())
@@ -76,6 +89,12 @@ public record LeaderboardServiceImpl(
         .sum();
   }
 
+  /**
+   * Attempts to load the game and compute the score for a player game record.
+   *
+   * @param pg the player game record
+   * @return an Optional containing the score, or empty if game not found or error
+   */
   private Optional<Integer> tryLoadGameAndScore(PlayerGame pg) {
     try {
       if (!gameRepository.exists(pg.gameId())) {

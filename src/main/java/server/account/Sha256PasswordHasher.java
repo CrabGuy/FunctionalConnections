@@ -7,16 +7,14 @@ import java.util.Base64;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
-/**
- * Password hasher using PBKDF2 with HMAC-SHA256. Implemented as a record (no state, all methods
- * static-like).
- */
+/** Password hasher using PBKDF2 with SHA-256 and a random salt. */
 public record Sha256PasswordHasher() implements PasswordHasher {
 
   private static final int ITERATIONS = 10_000;
-  private static final int KEY_LENGTH = 256; // bits
+  private static final int KEY_LENGTH = 256;
   private static final SecureRandom RANDOM = new SecureRandom();
 
+  /** {@inheritDoc} */
   @Override
   public String hash(String rawPassword) {
     byte[] salt = new byte[16];
@@ -29,6 +27,7 @@ public record Sha256PasswordHasher() implements PasswordHasher {
         + Base64.getEncoder().encodeToString(hash);
   }
 
+  /** {@inheritDoc} */
   @Override
   public boolean matches(String rawPassword, String passwordHash) {
     String[] parts = passwordHash.split(":");
@@ -43,6 +42,15 @@ public record Sha256PasswordHasher() implements PasswordHasher {
     return slowEquals(expectedHash, actualHash);
   }
 
+  /**
+   * Computes PBKDF2 hash.
+   *
+   * @param password the password characters
+   * @param salt the salt
+   * @param iterations the iteration count
+   * @param keyLengthBits the desired key length in bits
+   * @return the derived key bytes
+   */
   private static byte[] pbkdf2(char[] password, byte[] salt, int iterations, int keyLengthBits) {
     try {
       PBEKeySpec spec = new PBEKeySpec(password, salt, iterations, keyLengthBits);
@@ -53,6 +61,13 @@ public record Sha256PasswordHasher() implements PasswordHasher {
     }
   }
 
+  /**
+   * Compares two byte arrays in constant time.
+   *
+   * @param a first array
+   * @param b second array
+   * @return true if equal, false otherwise
+   */
   private static boolean slowEquals(byte[] a, byte[] b) {
     int diff = a.length ^ b.length;
     for (int i = 0; i < a.length && i < b.length; i++) {

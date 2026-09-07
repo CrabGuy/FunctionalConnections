@@ -16,9 +16,8 @@ import server.dto.PlayerGame;
 import server.game.PlayerGameRepository;
 
 /**
- * Persistence service that saves accounts and player games to JSON files. Uses Gson for
- * serialization/deserialization. Files are stored in the configured storage directory. The service
- * can be asked to periodically save snapshots using a background thread.
+ * Implementation of {@link PersistenceService} that saves and loads snapshots to JSON files in a
+ * directory, with optional periodic scheduling.
  */
 public class FilePersistenceService implements PersistenceService {
 
@@ -28,53 +27,47 @@ public class FilePersistenceService implements PersistenceService {
   private ScheduledExecutorService scheduler;
 
   /**
-   * Full constructor with explicit persistence interval.
+   * Constructs the service with a custom snapshot interval.
    *
-   * @param storageDirectory the directory where snapshot files will be stored
-   * @param intervalMillis the interval in milliseconds between automatic snapshots
+   * @param storageDirectory the directory to store snapshots
+   * @param intervalMillis the interval for periodic snapshots
    */
   public FilePersistenceService(Path storageDirectory, long intervalMillis) {
     this.storageDirectory = storageDirectory;
     this.intervalMillis = intervalMillis;
-    this.gson =
-        new GsonBuilder()
-            .setPrettyPrinting()
-            .create(); // record support is built-in since Gson 2.10
+    this.gson = new GsonBuilder().setPrettyPrinting().create();
   }
 
   /**
-   * Convenience constructor for tests or when periodic scheduling is not needed. Uses {@link
-   * Long#MAX_VALUE} as the interval, effectively disabling automatic snapshots.
+   * Constructs the service with no periodic scheduling (only manual snapshots).
    *
-   * @param storageDirectory the directory where snapshot files will be stored
+   * @param storageDirectory the directory to store snapshots
    */
   public FilePersistenceService(Path storageDirectory) {
     this(storageDirectory, Long.MAX_VALUE);
   }
 
+  /** {@inheritDoc} */
   @Override
   public void saveSnapshot(AccountRepository accounts, PlayerGameRepository playerGames)
       throws IOException {
-    // Ensure storage directory exists
     Files.createDirectories(storageDirectory);
 
-    // Save accounts
     List<Account> accountList = accounts.findAll();
     Path accountsFile = storageDirectory.resolve("accounts.json");
     String accountsJson = gson.toJson(accountList);
     Files.writeString(accountsFile, accountsJson);
 
-    // Save player games
     List<PlayerGame> playerGameList = playerGames.findAll();
     Path playerGamesFile = storageDirectory.resolve("playerGames.json");
     String playerGamesJson = gson.toJson(playerGameList);
     Files.writeString(playerGamesFile, playerGamesJson);
   }
 
+  /** {@inheritDoc} */
   @Override
   public void loadSnapshot(AccountRepository accounts, PlayerGameRepository playerGames)
       throws IOException {
-    // Load accounts if file exists
     Path accountsFile = storageDirectory.resolve("accounts.json");
     if (Files.exists(accountsFile)) {
       String accountsJson = Files.readString(accountsFile);
@@ -83,7 +76,6 @@ public class FilePersistenceService implements PersistenceService {
       accountList.forEach(accounts::save);
     }
 
-    // Load player games if file exists
     Path playerGamesFile = storageDirectory.resolve("playerGames.json");
     if (Files.exists(playerGamesFile)) {
       String playerGamesJson = Files.readString(playerGamesFile);
@@ -93,6 +85,7 @@ public class FilePersistenceService implements PersistenceService {
     }
   }
 
+  /** {@inheritDoc} */
   @Override
   public void schedulePeriodicSnapshot(
       AccountRepository accounts, PlayerGameRepository playerGames) {

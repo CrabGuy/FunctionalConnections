@@ -1,5 +1,6 @@
 package shared.dto;
 
+/** Marker interface for all API request DTOs. Each request must have an operation name. */
 public sealed interface ApiRequest
     permits RegisterRequest,
         LoginRequest,
@@ -10,5 +11,11 @@ public sealed interface ApiRequest
         RequestGameStatsRequest,
         RequestLeaderboardRequest,
         RequestPlayerStatsRequest {
+
+  /**
+   * Returns the operation name of the request.
+   *
+   * @return the operation name
+   */
   String operation();
 }

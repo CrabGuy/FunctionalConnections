@@ -9,15 +9,21 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import shared.dto.GameEndNotification;
 
+/**
+ * Implementation of {@link NotificationListener} that listens for game end notifications over UDP.
+ */
 public final class UdpNotificationListener implements NotificationListener {
+
   private volatile boolean running;
   private DatagramSocket socket;
   private Thread thread;
 
+  /** {@inheritDoc} */
   @Override
   public void start(int udpPort, Consumer<GameEndNotification> onGameEnd) throws IOException {
     Objects.requireNonNull(onGameEnd, "onGameEnd");
     stop();
+
     socket = new DatagramSocket(udpPort);
     running = true;
     thread = new Thread(() -> listen(onGameEnd), "client-udp-notifications");
@@ -25,6 +31,7 @@ public final class UdpNotificationListener implements NotificationListener {
     thread.start();
   }
 
+  /** {@inheritDoc} */
   @Override
   public void stop() {
     running = false;
@@ -38,6 +45,12 @@ public final class UdpNotificationListener implements NotificationListener {
     }
   }
 
+  /**
+   * Listens for UDP packets, deserializes them into {@link GameEndNotification}, and invokes the
+   * callback.
+   *
+   * @param onGameEnd the callback to handle notifications
+   */
   private void listen(Consumer<GameEndNotification> onGameEnd) {
     byte[] buffer = new byte[65_507];
     try {

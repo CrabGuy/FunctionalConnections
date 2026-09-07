@@ -9,22 +9,12 @@ import server.game.exceptions.GameException;
 import server.stats.LeaderboardService;
 import server.stats.StatsService;
 import server.stats.exceptions.PlayerNotFoundException;
-import shared.dto.ApiError;
-import shared.dto.ApiRequest;
-import shared.dto.ApiResponse;
-import shared.dto.ErrorCode;
-import shared.dto.LoginData;
-import shared.dto.LoginRequest;
-import shared.dto.LogoutData;
-import shared.dto.LogoutRequest;
-import shared.dto.RegisterRequest;
-import shared.dto.RequestGameInfoRequest;
-import shared.dto.RequestGameStatsRequest;
-import shared.dto.RequestLeaderboardRequest;
-import shared.dto.RequestPlayerStatsRequest;
-import shared.dto.SubmitProposalRequest;
-import shared.dto.UpdateCredentialsRequest;
+import shared.dto.*;
 
+/**
+ * Implementation of {@link RequestDispatcher} that routes requests to the appropriate service
+ * methods and handles exceptions.
+ */
 public record RequestDispatcherImpl(
     AccountService accountService,
     ProposalService proposalService,
@@ -33,6 +23,7 @@ public record RequestDispatcherImpl(
     GameClock gameClock)
     implements RequestDispatcher {
 
+  /** {@inheritDoc} */
   @Override
   public ApiResponse<?> dispatch(ApiRequest request, InetSocketAddress remoteAddress) {
     try {
@@ -47,8 +38,7 @@ public record RequestDispatcherImpl(
                       req.udpPort(),
                       remoteAddress.getAddress().getHostAddress())
                   .accountToken();
-
-            proposalService.touchCurrentGame(token);
+          proposalService.touchCurrentGame(token);
           yield success(new LoginData(token));
         }
         case LogoutRequest req -> {
@@ -89,10 +79,23 @@ public record RequestDispatcherImpl(
     }
   }
 
+  /**
+   * Creates a successful API response.
+   *
+   * @param data the data to include
+   * @param <T> the data type
+   * @return the response
+   */
   private <T> ApiResponse<T> success(T data) {
     return new ApiResponse<>(true, null, data);
   }
 
+  /**
+   * Creates a failure API response.
+   *
+   * @param error the error details
+   * @return the response
+   */
   private ApiResponse<?> failure(ApiError error) {
     return new ApiResponse<>(false, error, null);
   }

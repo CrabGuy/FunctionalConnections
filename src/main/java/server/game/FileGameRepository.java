@@ -11,21 +11,24 @@ import server.dto.WordGroup;
 import server.game.exceptions.GameNotFoundException;
 
 /**
- * Implementation of {@link GameRepository} that loads game word groups from a JSON file. The file
- * is expected to be an array of objects, each containing a "groups" array. Each group has a "theme"
- * and a "words" array.
- *
- * <p>The total number of games is lazily computed once per repository instance and cached. This
- * avoids reading the file repeatedly for size checks.
+ * Implementation of {@link GameRepository} that reads games from a JSON file. The file contains an
+ * array of game objects, and the repository supports loading games by ID using modulo indexing.
  */
 public final class FileGameRepository implements GameRepository {
-  private final String gameDataFile;
-  private final AtomicInteger totalGames = new AtomicInteger(-1); // -1 means not loaded yet
 
+  private final String gameDataFile;
+  private final AtomicInteger totalGames = new AtomicInteger(-1);
+
+  /**
+   * Constructs a new repository with the given file path.
+   *
+   * @param gameDataFile the path to the JSON file containing game definitions
+   */
   public FileGameRepository(String gameDataFile) {
     this.gameDataFile = gameDataFile;
   }
 
+  /** {@inheritDoc} */
   @Override
   public GameWordGroups loadById(long gameId) throws GameNotFoundException {
     if (gameId < 0) {
@@ -36,6 +39,7 @@ public final class FileGameRepository implements GameRepository {
       throw new GameNotFoundException(gameId);
     }
     int index = (int) (gameId % total);
+
     try (JsonReader reader = new JsonReader(new FileReader(gameDataFile))) {
       reader.beginArray();
       int current = 0;
@@ -53,6 +57,7 @@ public final class FileGameRepository implements GameRepository {
     }
   }
 
+  /** {@inheritDoc} */
   @Override
   public boolean exists(long gameId) {
     if (gameId < 0) {
@@ -65,9 +70,9 @@ public final class FileGameRepository implements GameRepository {
   }
 
   /**
-   * Lazily loads and caches the total number of games in the file. Uses an AtomicInteger for
-   * visibility and a synchronized block to prevent multiple threads from reading the file
-   * concurrently during initial load.
+   * Returns the total number of games in the file, caching the result.
+   *
+   * @return the total number of games
    */
   private int getTotalGames() {
     int cached = totalGames.get();
@@ -85,7 +90,11 @@ public final class FileGameRepository implements GameRepository {
     }
   }
 
-  /** Counts the number of elements in the JSON array at the top level. */
+  /**
+   * Counts the number of game objects in the file.
+   *
+   * @return the count
+   */
   private int countGamesInFile() {
     try (JsonReader reader = new JsonReader(new FileReader(gameDataFile))) {
       reader.beginArray();
@@ -101,6 +110,14 @@ public final class FileGameRepository implements GameRepository {
     }
   }
 
+  /**
+   * Parses a single game object from the JSON reader.
+   *
+   * @param reader the JSON reader positioned at the start of the object
+   * @param actualGameId the actual game ID to assign
+   * @return the parsed {@link GameWordGroups}
+   * @throws IOException if a parsing error occurs
+   */
   private GameWordGroups parseGameObject(JsonReader reader, long actualGameId) throws IOException {
     reader.beginObject();
     List<WordGroup> groups = new ArrayList<>();
@@ -120,6 +137,13 @@ public final class FileGameRepository implements GameRepository {
     return new GameWordGroups(actualGameId, groups);
   }
 
+  /**
+   * Parses a single word group object.
+   *
+   * @param reader the JSON reader positioned at the start of the group object
+   * @return the parsed {@link WordGroup}
+   * @throws IOException if a parsing error occurs
+   */
   private WordGroup parseGroup(JsonReader reader) throws IOException {
     reader.beginObject();
     String theme = null;

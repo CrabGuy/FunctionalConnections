@@ -2,7 +2,10 @@ package server.game.exceptions;
 
 import shared.dto.ErrorCode;
 
+/** Thrown when a proposal contains words that are not part of the current game. */
 public final class UnknownWordsInProposalException extends InvalidProposalException {
+
+  /** Constructs the exception. */
   public UnknownWordsInProposalException() {
     super(
         ErrorCode.UNKNOWN_WORDS_IN_PROPOSAL,
