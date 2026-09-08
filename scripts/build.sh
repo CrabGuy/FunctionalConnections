@@ -1,13 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# ----- Check Java Version (Requires >= 21) -----
-JAVA_VERSION=$(java -version 2>&1 | head -n 1 | cut -d'"' -f2 | sed -e 's/^1\.//' -e 's/\..*//' -e 's/-.*//' || echo "0")
-if ! [[ "$JAVA_VERSION" =~ ^[0-9]+$ ]] || [ "$JAVA_VERSION" -lt 21 ]; then
-    echo "ERROR: Java 21 or higher is required. Found version: $JAVA_VERSION" >&2
-    exit 1
-fi
-
 # ----- Determine project root -----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR/.."   # build.sh is in the project root

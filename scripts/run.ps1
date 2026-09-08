@@ -1,25 +1,6 @@
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 
-# ----- Check Java Version (Requires >= 21) -----
-try {
-    $JavaVersionOutput = java -version 2>&1 | Select-Object -First 1
-    if ($JavaVersionOutput -match '"([^"]+)"') {
-        $FullVersion = $Matches[1]
-        $MajorVersion = [int]($FullVersion -replace '^1\.', '' -replace '\..*$', '' -replace '-.*$', '')
-        if ($MajorVersion -lt 21) {
-            Write-Error "ERROR: Java 21 or higher is required. Found version: $FullVersion"
-            exit 1
-        }
-    } else {
-        Write-Error "ERROR: Could not determine Java version."
-        exit 1
-    }
-} catch {
-    Write-Error "ERROR: Java is not installed or not available in PATH."
-    exit 1
-}
-
 # ----- Determine project root -----
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
