@@ -8,3 +8,5 @@
 *.txt
 !/docs/**
 *.jar
+*.css
+*.pdf

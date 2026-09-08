@@ -25,7 +25,7 @@ javac -cp "lib/gson-2.10.1.jar" -d out $(find src/main/java -name "*.java")
 
 - `.\scripts\run.ps1` to start the server in the background and see the client's output
 - `.\scripts\build.ps1` to compile the client and the server into separate files in `\out`
-- Both load the same config files from `\config`
+- Both load separate config files from `/config`
 
 **By hand**
 
@@ -41,7 +41,7 @@ javac -cp "lib\gson-2.10.1.jar" -d out "@sources.txt"
 
 ---
 
-## 2. Design Choices (decisions not mandated by the spec)
+## 2. Design Choices
 
 **Game identity & lifecycle**
 - Games are derived purely from time in `GameClockImpl`, there is no "create game" step. `gameId = now / gameDuration`
