@@ -1,6 +1,7 @@
-- Slight, and i mean SLIGHT race condition with what players recieve the notification (login) and what they receive (submitProposal)
+- Slight, and i mean SLIGHT race condition with what players recieve the notification (login) and what they receive (submitProposal) while game changes
 - AccessToken is valid even after loggin out, could not care less
 - Performance on leaderboard calculation and other big server computations (like player stats) could be improved using a map/cache and adding additional state (yuck!)
 - UDP notifications from the server are absolutely useless and could be done client side
 - File persistence could have been implemented differently, using a file as the source of truth instead of saving everything in memory and modifying the JSON file directly by only parsing the structure and modifying the relevant parts of the file. But the current implementation is fine.
 - Player-Game locks in submit proposal keeps growing
+- You are counted as playing the game either when you submit a proposal or you request game info, since the requirements ask you to count logged in players as playing the game there is a special case that adds you to the playing players even when you just login. If the match expires and you dont ask for game info for the next you will not get counted as playing, which is fair enough in my opinion but might not be exactly what the requirements ask. The client i wrote asks for game info on game change so you would still get counted as playing with my client implementation.
